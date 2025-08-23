@@ -6,6 +6,9 @@ import Features from "./components/Features";
 import Footer from "./components/Footer";
 import WaitlistModal from "./components/WaitlistModal";
 import DemoModal from "./components/DemoModal";
+import Terms from "./components/legal/Terms";
+import Privacy from "./components/legal/Privacy";
+import Cookies from "./components/legal/Cookies";
 import "./animations.css";
 
 function App() {
@@ -22,23 +25,24 @@ function App() {
               onWaitlistClick={() => setShowWaitlist(true)}
               onDemoClick={() => setShowDemo(true)}
             />
-            <Hero 
+            <Hero
               onJoinWaitlist={() => setShowWaitlist(true)}
               onTryDemo={() => setShowDemo(true)}
             />
             <Features />
             <Footer />
-            
+
             {/* Modals */}
             {showWaitlist && (
               <WaitlistModal onClose={() => setShowWaitlist(false)} />
             )}
-            {showDemo && (
-              <DemoModal onClose={() => setShowDemo(false)} />
-            )}
+            {showDemo && <DemoModal onClose={() => setShowDemo(false)} />}
           </div>
         }
       />
+      <Route path="/terms" element={<Terms />} />
+      <Route path="/privacy" element={<Privacy />} />
+      <Route path="/cookies" element={<Cookies />} />
       {/* Fallback */}
       <Route path="*" element={<div className="p-6">Not Found</div>} />
     </Routes>

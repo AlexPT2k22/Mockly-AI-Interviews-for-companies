@@ -19,7 +19,6 @@ const Footer = () => {
   return (
     <footer className="bg-gray-50/30 pt-0 pb-10">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-
         {/* Bottom Bar */}
         <div className="border-t border-gray-100/50 pt-8 flex flex-col md:flex-row justify-between items-center">
           <p className="text-gray-500 text-sm mb-4 md:mb-0 font-light">
@@ -27,19 +26,25 @@ const Footer = () => {
           </p>
           <div className="flex space-x-6">
             <a
-              href="#"
+              href="/"
+              className="text-gray-500 hover:text-gray-900 text-sm transition-colors duration-200 font-light"
+            >
+              Home
+            </a>
+            <a
+              href="/privacy"
               className="text-gray-500 hover:text-gray-900 text-sm transition-colors duration-200 font-light"
             >
               Privacy Policy
             </a>
             <a
-              href="#"
+              href="/terms"
               className="text-gray-500 hover:text-gray-900 text-sm transition-colors duration-200 font-light"
             >
               Terms of Service
             </a>
             <a
-              href="#"
+              href="/cookies"
               className="text-gray-500 hover:text-gray-900 text-sm transition-colors duration-200 font-light"
             >
               Cookie Policy

@@ -73,6 +73,7 @@ const Hero: React.FC<HeroProps> = ({ onJoinWaitlist, onTryDemo }) => {
           style={{ transitionDelay: "0.4s" }}
         >
           <button
+            data-waitlist
             onClick={() => {
               track("cta_click", { location: "hero", action: "open_waitlist" });
               onJoinWaitlist?.();

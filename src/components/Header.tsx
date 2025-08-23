@@ -53,6 +53,7 @@ const Header: React.FC<HeaderProps> = ({ onWaitlistClick, onDemoClick }) => {
               Try Demo
             </button>
             <button
+              data-waitlist
               onClick={() => {
                 track("cta_click", {
                   location: "header",
@@ -116,6 +117,7 @@ const Header: React.FC<HeaderProps> = ({ onWaitlistClick, onDemoClick }) => {
                   Try Demo
                 </button>
                 <button
+                  data-waitlist
                   onClick={() => {
                     track("cta_click", {
                       location: "header_mobile",

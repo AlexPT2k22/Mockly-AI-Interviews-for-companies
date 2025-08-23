@@ -1,0 +1,48 @@
+import { useState } from "react";
+import { Routes, Route } from "react-router-dom";
+import Header from "./components/Header";
+import Hero from "./components/Hero";
+import Features from "./components/Features";
+import Footer from "./components/Footer";
+import WaitlistModal from "./components/WaitlistModal";
+import DemoModal from "./components/DemoModal";
+import "./animations.css";
+
+function App() {
+  const [showWaitlist, setShowWaitlist] = useState(false);
+  const [showDemo, setShowDemo] = useState(false);
+
+  return (
+    <Routes>
+      <Route
+        path="/"
+        element={
+          <div className="min-h-screen bg-gray-50/30">
+            <Header
+              onWaitlistClick={() => setShowWaitlist(true)}
+              onDemoClick={() => setShowDemo(true)}
+            />
+            <Hero 
+              onJoinWaitlist={() => setShowWaitlist(true)}
+              onTryDemo={() => setShowDemo(true)}
+            />
+            <Features />
+            <Footer />
+            
+            {/* Modals */}
+            {showWaitlist && (
+              <WaitlistModal onClose={() => setShowWaitlist(false)} />
+            )}
+            {showDemo && (
+              <DemoModal onClose={() => setShowDemo(false)} />
+            )}
+          </div>
+        }
+      />
+      {/* Fallback */}
+      <Route path="*" element={<div className="p-6">Not Found</div>} />
+    </Routes>
+  );
+}
+
+export default App;

@@ -10,7 +10,6 @@ import {
   Sparkles,
   Brain,
 } from "lucide-react";
-import { track } from "../lib/analytics";
 
 interface DemoModalProps {
   onClose: () => void;
@@ -51,61 +50,32 @@ const DemoModal: React.FC<DemoModalProps> = ({ onClose }) => {
   const [mode, setMode] = useState<"voice" | "text" | null>(null);
   const [answer, setAnswer] = useState<string>("");
   const [recording, setRecording] = useState(false);
-  const [interim, setInterim] = useState<string>("");
+  const [transcribing, setTranscribing] = useState(false);
   const [analysis, setAnalysis] = useState<{
     scores: Record<string, number>;
     feedback: string[];
   } | null>(null);
   const [voiceSupported, setVoiceSupported] = useState<boolean>(false);
   const recognitionRef = useRef<any>(null);
+  const desiredRecordingRef = useRef<boolean>(false); // whether user intends continuous recording
   const answerRef = useRef<HTMLTextAreaElement | null>(null);
   const liveRegionRef = useRef<HTMLDivElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
 
-  // Detect voice (Web Speech API)
+  // Detect voice support (simplified - just check for MediaRecorder)
   useEffect(() => {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition ||
-      (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      setVoiceSupported(true);
-      const rec = new SpeechRecognition();
-      rec.continuous = true;
-      rec.interimResults = true;
-      rec.lang = "en-US";
-      rec.onresult = (e: any) => {
-        let finalTranscript = "";
-        let interimTranscript = "";
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          const res = e.results[i];
-          const transcript = res[0].transcript;
-          if (res.isFinal) finalTranscript += transcript;
-          else interimTranscript += transcript;
-        }
-        if (finalTranscript) {
-          setAnswer((prev) =>
-            (prev + (prev ? " " : "") + finalTranscript).trim()
-          );
-        }
-        setInterim(interimTranscript.trim());
-        if (interimTranscript) {
-          track("demo_answer_record_interim", {
-            chars: interimTranscript.length,
-          });
-        }
-      };
-      rec.onend = () => {
-        setRecording(false);
-        track("demo_answer_record_stop");
-        setInterim("");
-      };
-      rec.onerror = (err: any) => {
-        track("demo_answer_record_error", { error: err.error || "unknown" });
-        setRecording(false);
-      };
-      rec.onstart = () => {
-        track("demo_answer_record_start");
-      };
-      recognitionRef.current = rec;
+    const hasMediaRecorder = typeof MediaRecorder !== "undefined";
+    const hasGetUserMedia = !!(
+      navigator.mediaDevices && navigator.mediaDevices.getUserMedia
+    );
+    setVoiceSupported(hasMediaRecorder && hasGetUserMedia);
+
+    if (hasMediaRecorder && hasGetUserMedia) {
+      console.log("Native recording supported");
+    } else {
+      console.log("Native recording not supported");
     }
   }, []);
 
@@ -114,34 +84,165 @@ const DemoModal: React.FC<DemoModalProps> = ({ onClose }) => {
     if (step === "answer" && answerRef.current) answerRef.current.focus();
     if (liveRegionRef.current)
       liveRegionRef.current.textContent = `Step changed to ${step}`;
-  }, [step]);
+
+    // Stop recording when leaving answer step
+    if (step !== "answer" && recording) {
+      console.log("Leaving answer step, stopping recording...");
+      desiredRecordingRef.current = false;
+      try {
+        if (
+          mediaRecorderRef.current &&
+          mediaRecorderRef.current.state === "recording"
+        ) {
+          mediaRecorderRef.current.stop();
+        }
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach((track) => track.stop());
+        }
+      } catch (error) {
+        console.error("Error stopping recording on step change:", error);
+      }
+      setRecording(false);
+    }
+  }, [step, recording]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (recording) {
+        console.log("Component unmounting, cleaning up recording...");
+        desiredRecordingRef.current = false;
+        try {
+          if (
+            mediaRecorderRef.current &&
+            mediaRecorderRef.current.state === "recording"
+          ) {
+            mediaRecorderRef.current.stop();
+          }
+          if (streamRef.current) {
+            streamRef.current.getTracks().forEach((track) => track.stop());
+          }
+        } catch (error) {
+          console.error("Error during cleanup:", error);
+        }
+      }
+    };
+  }, [recording]);
 
   const selectCategory = (c: (typeof CATEGORIES)[number]) => {
     setCategory(c.key);
     setQuestion(c.sample);
-    track("demo_category_select", { category: c.key });
     setStep("question");
   };
 
   const chooseMode = (m: "voice" | "text") => {
     setMode(m);
-    track("demo_answer_mode_select", { mode: m });
     setStep("answer");
   };
 
-  const toggleRecording = () => {
+  const toggleRecording = async () => {
     if (!voiceSupported) return;
+
     if (!recording) {
+      console.log("Starting native recording...");
       try {
-        setInterim("");
-        recognitionRef.current?.start();
+        // Request microphone permission and get stream
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            sampleRate: 16000,
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+          },
+        });
+        streamRef.current = stream;
+
+        // Setup MediaRecorder for audio capture
+        const mediaRecorder = new MediaRecorder(stream, {
+          mimeType: "audio/webm;codecs=opus",
+        });
+        mediaRecorderRef.current = mediaRecorder;
+        audioChunksRef.current = [];
+
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            audioChunksRef.current.push(event.data);
+          }
+        };
+
+        mediaRecorder.onstop = async () => {
+          console.log("Recording stopped, processing audio...");
+          if (audioChunksRef.current.length > 0) {
+            const audioBlob = new Blob(audioChunksRef.current, {
+              type: "audio/webm",
+            });
+            await transcribeAudio(audioBlob);
+          }
+
+          // Cleanup
+          if (streamRef.current) {
+            streamRef.current.getTracks().forEach((track) => track.stop());
+            streamRef.current = null;
+          }
+        };
+
+        // Start recording
+        mediaRecorder.start(1000); // Collect data every 1 second
         setRecording(true);
-      } catch (e) {
-        // ignore start errors
+        desiredRecordingRef.current = true;
+      } catch (error) {
+        console.error("Failed to start native recording:", error);
+        alert("Please allow microphone access to use voice recording.");
       }
     } else {
-      recognitionRef.current?.stop();
-      // onend handler will setRecording(false)
+      console.log("Stopping native recording...");
+      desiredRecordingRef.current = false;
+
+      if (
+        mediaRecorderRef.current &&
+        mediaRecorderRef.current.state === "recording"
+      ) {
+        mediaRecorderRef.current.stop();
+      }
+      setRecording(false);
+    }
+  };
+
+  const transcribeAudio = async (audioBlob: Blob) => {
+    try {
+      setTranscribing(true);
+      console.log("Transcribing audio blob of size:", audioBlob.size);
+
+      // Create FormData for audio upload
+      const formData = new FormData();
+      formData.append("audio", audioBlob, "recording.webm");
+
+      // Call backend transcription endpoint
+      const response = await fetch("http://localhost:8787/api/ai/transcribe", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Transcription failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const transcription = data.text || "";
+
+      if (transcription.trim()) {
+        setAnswer((prev) => (prev + (prev ? " " : "") + transcription).trim());
+        console.log("Transcription received:", transcription);
+      }
+    } catch (error) {
+      console.error("Transcription error:", error);
+      // Fallback: show a message to user
+      setAnswer(
+        (prev) =>
+          prev + (prev ? " " : "") + "[Transcription failed - please try again]"
+      );
+    } finally {
+      setTranscribing(false);
     }
   };
 
@@ -151,16 +252,13 @@ const DemoModal: React.FC<DemoModalProps> = ({ onClose }) => {
       recognitionRef.current?.stop();
       return;
     }
-    track("demo_answer_submit", { length: answer.length, mode });
     setStep("analyzing");
-    track("demo_analysis_begin");
     // Simulate analysis (~2.5s)
     setTimeout(() => {
       const scores = generateScores(answer);
       const feedback = buildFeedback(scores, answer);
       setAnalysis({ scores, feedback });
       setStep("results");
-      track("demo_analysis_complete");
     }, 2500);
   };
 
@@ -192,12 +290,10 @@ const DemoModal: React.FC<DemoModalProps> = ({ onClose }) => {
   };
 
   const close = () => {
-    track("demo_close");
     onClose();
   };
 
   const joinWaitlist = () => {
-    track("demo_join_waitlist");
     onClose();
     setTimeout(() => {
       const btn = document.querySelector(
@@ -282,94 +378,6 @@ const DemoModal: React.FC<DemoModalProps> = ({ onClose }) => {
     </div>
   );
 
-  const AnswerStep = () => (
-    <div className="space-y-6">
-      <div>
-        <h4 className="text-xl font-semibold text-gray-900 mb-2">
-          Your Answer ({mode === "voice" ? "Voice" : "Text"})
-        </h4>
-        <p className="text-sm text-gray-600 mb-4">
-          Question: <span className="text-gray-800">{question}</span>
-        </p>
-        {mode === "text" && (
-          <textarea
-            ref={answerRef}
-            value={answer}
-            onChange={(e) => setAnswer(e.target.value)}
-            maxLength={500}
-            rows={6}
-            className="w-full resize-none rounded-xl border border-gray-200 focus:ring-2 focus:ring-gray-900 focus:border-transparent p-4 font-medium text-gray-800"
-            placeholder="Type your answer here..."
-          />
-        )}
-        {mode === "voice" && (
-          <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={toggleRecording}
-                type="button"
-                className={`px-4 py-2 rounded-xl font-medium flex items-center gap-2 transition-all border ${
-                  recording
-                    ? "bg-red-600 text-white border-red-600"
-                    : "bg-gray-900 text-white border-gray-900 hover:bg-gray-800"
-                }`}
-              >
-                {recording ? (
-                  <MicOff className="w-4 h-4" />
-                ) : (
-                  <Mic className="w-4 h-4" />
-                )}
-                {recording ? "Stop" : "Start Recording"}
-              </button>
-              <p className="text-sm text-gray-600">
-                {recording
-                  ? "Listening... speak naturally."
-                  : "Click to begin recording."}
-              </p>
-            </div>
-            <div className="min-h-[140px] p-4 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-700 whitespace-pre-wrap">
-              {(
-                answer + (interim ? (answer ? " " : "") + interim : "")
-              ).trim() || "Transcription will appear here..."}
-            </div>
-            <div>
-              <button
-                type="button"
-                onClick={() => {
-                  recognitionRef.current?.stop();
-                  setMode("text");
-                  setStep("answer");
-                }}
-                className="text-xs text-gray-500 hover:text-gray-700 underline"
-              >
-                Switch to text input
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-      <div className="flex items-center justify-between">
-        <button
-          onClick={() => {
-            setAnswer("");
-            setStep("question");
-          }}
-          className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
-        >
-          Back
-        </button>
-        <button
-          onClick={submitAnswer}
-          disabled={!answer.trim() || recording}
-          className="px-6 py-3 rounded-xl bg-gray-900 text-white font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
-        >
-          {recording ? "Stop Recording First" : "Analyze"}{" "}
-          <Brain className="w-4 h-4" />
-        </button>
-      </div>
-    </div>
-  );
-
   const AnalyzingStep = () => (
     <div className="flex flex-col items-center justify-center space-y-6 py-16">
       <Loader2 className="w-10 h-10 text-gray-900 animate-spin" />
@@ -399,26 +407,30 @@ const DemoModal: React.FC<DemoModalProps> = ({ onClose }) => {
       </div>
       <div className="grid md:grid-cols-2 gap-6">
         {analysis &&
-          Object.entries(analysis.scores).map(([k, v]) => (
-            <div
-              key={k}
-              className="p-4 rounded-xl border border-gray-200 bg-white"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-gray-700">{k}</span>
-                <span className="text-sm font-semibold text-gray-900">{v}</span>
+          (Object.entries(analysis.scores) as [string, number][]).map(
+            ([k, v]) => (
+              <div
+                key={k}
+                className="p-4 rounded-xl border border-gray-200 bg-white"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-700">{k}</span>
+                  <span className="text-sm font-semibold text-gray-900">
+                    {v}
+                  </span>
+                </div>
+                <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    style={{ width: `${Math.min(100, v as number)}%` }}
+                    className="h-full bg-gray-900 rounded-full"
+                  />
+                </div>
               </div>
-              <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-                <div
-                  style={{ width: `${Math.min(100, v)}%` }}
-                  className="h-full bg-gray-900 rounded-full"
-                />
-              </div>
-            </div>
-          ))}
+            )
+          )}
       </div>
       <div className="space-y-3">
-        {analysis?.feedback.map((f, i) => (
+        {analysis?.feedback.map((f: string, i: number) => (
           <div
             key={i}
             className="p-3 rounded-lg bg-gray-50 border border-gray-200 text-sm text-gray-700"
@@ -481,7 +493,109 @@ const DemoModal: React.FC<DemoModalProps> = ({ onClose }) => {
         <div className="p-6 space-y-10">
           {step === "category" && <CategoryStep />}
           {step === "question" && <QuestionStep />}
-          {step === "answer" && <AnswerStep />}
+          {step === "answer" && (
+            <div className="space-y-6">
+              <div>
+                <h4 className="text-xl font-semibold text-gray-900 mb-2">
+                  Your Answer ({mode === "voice" ? "Voice" : "Text"})
+                </h4>
+                <p className="text-sm text-gray-600 mb-4">
+                  Question: <span className="text-gray-800">{question}</span>
+                </p>
+                {mode === "text" && (
+                  <textarea
+                    ref={answerRef}
+                    value={answer}
+                    onChange={(e) => setAnswer(e.target.value)}
+                    maxLength={500}
+                    rows={6}
+                    className="w-full resize-none rounded-xl border border-gray-200 focus:ring-2 focus:ring-gray-900 focus:border-transparent p-4 font-medium text-gray-800"
+                    placeholder="Type your answer here..."
+                  />
+                )}
+                {mode === "voice" && (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={toggleRecording}
+                        type="button"
+                        className={`px-4 py-2 rounded-xl font-medium flex items-center gap-2 transition-all border ${
+                          recording
+                            ? "bg-red-600 text-white border-red-600"
+                            : "bg-gray-900 text-white border-gray-900 hover:bg-gray-800"
+                        }`}
+                      >
+                        {recording ? (
+                          <MicOff className="w-4 h-4" />
+                        ) : (
+                          <Mic className="w-4 h-4" />
+                        )}
+                        {recording ? "Stop" : "Start Recording"}
+                      </button>
+                      <p className="text-sm text-gray-600">
+                        {transcribing
+                          ? "Transcribing audio... please wait."
+                          : recording
+                          ? "Recording... speak naturally."
+                          : "Click to begin recording."}
+                      </p>
+                    </div>
+                    <div className="min-h-[140px] p-4 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-700 whitespace-pre-wrap">
+                      {answer.trim() || "Transcription will appear here..."}
+                    </div>
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          console.log("Switching to text mode...");
+                          desiredRecordingRef.current = false;
+                          try {
+                            if (
+                              mediaRecorderRef.current &&
+                              mediaRecorderRef.current.state === "recording"
+                            ) {
+                              mediaRecorderRef.current.stop();
+                            }
+                            if (streamRef.current) {
+                              streamRef.current
+                                .getTracks()
+                                .forEach((track) => track.stop());
+                            }
+                          } catch (error) {
+                            console.error("Error stopping recording:", error);
+                          }
+                          setRecording(false);
+                          setMode("text");
+                        }}
+                        className="text-xs text-gray-500 hover:text-gray-700 underline"
+                      >
+                        Switch to text input
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={() => {
+                    setAnswer("");
+                    setStep("question");
+                  }}
+                  className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                >
+                  Back
+                </button>
+                <button
+                  onClick={submitAnswer}
+                  disabled={!answer.trim() || recording}
+                  className="px-6 py-3 rounded-xl bg-gray-900 text-white font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
+                >
+                  {recording ? "Stop Recording First" : "Analyze"}{" "}
+                  <Brain className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
           {step === "analyzing" && <AnalyzingStep />}
           {step === "results" && <ResultsStep />}
         </div>

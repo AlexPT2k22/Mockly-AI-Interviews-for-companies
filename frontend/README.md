@@ -46,6 +46,16 @@ Environment variable `VITE_POSTHOG_KEY` should be defined in a `.env` file.
 | Waitlist | `waitlist_interest_toggle`, `waitlist_submit_attempt`, `waitlist_submit_success`, `waitlist_submit_error`, `waitlist_success_close`, `waitlist_modal_close` |
 | Features | `feature_card_click`, `feature_card_key_activate`                                                                                                           |
 
+### Hero & Inline (novos eventos)
+
+| Area             | Events / Exemplos                                                                      |
+| ---------------- | -------------------------------------------------------------------------------------- |
+| Hero Inline      | `cta_click { location: "hero_inline_form", action: "focus_email" }`                    |
+| Hero Inline      | `cta_click { location: "hero_inline_form", action: "open_waitlist", has_email: true }` |
+| Product Hunt     | `cta_click { location: "hero_ph_badge", action: "click_ph_badge" }`                    |
+| Waitlist Prefill | `waitlist_prefill_email`                                                               |
+| Beta Rating Btn  | `beta_rating_widget_submitted` (após enviar rating dentro do modal de sucesso)         |
+
 Add new events consistently with snake_case names.
 
 ### Beta Feedback Events

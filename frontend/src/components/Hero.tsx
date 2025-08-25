@@ -1,6 +1,14 @@
 import React, { useEffect, useRef, useState } from "react";
 import { track } from "../lib/analytics";
-import { Play, ArrowRight, Users, Star } from "lucide-react";
+import {
+  Play,
+  ArrowRight,
+  Users,
+  Star,
+  CheckCircle2,
+  Tag,
+  ExternalLink,
+} from "lucide-react";
 import { useWaitlistCount } from "../hooks/useWaitlistCount";
 
 interface HeroProps {
@@ -13,6 +21,7 @@ const Hero: React.FC<HeroProps> = ({ onJoinWaitlist, onTryDemo }) => {
   const { display: waitlistDisplay } = useWaitlistCount();
   const [betaAvg, setBetaAvg] = useState<number | null>(null);
   const [betaTotal, setBetaTotal] = useState<number | null>(null);
+  const [refSource, setRefSource] = useState<string | null>(null);
 
   useEffect(() => {
     let aborted = false;
@@ -36,7 +45,9 @@ const Hero: React.FC<HeroProps> = ({ onJoinWaitlist, onTryDemo }) => {
 
     const fetchAndCache = async () => {
       try {
-        const res = await fetch("https://mocklyalpha.onrender.com/api/beta/summary");
+        const res = await fetch(
+          "https://mocklyalpha.onrender.com/api/beta/summary"
+        );
         const json = await res.json();
         if (aborted) return;
         if (json && json.success !== false) {
@@ -65,6 +76,22 @@ const Hero: React.FC<HeroProps> = ({ onJoinWaitlist, onTryDemo }) => {
       aborted = true;
       clearInterval(interval);
     };
+  }, []);
+
+  // Capture ?ref or ?utm_source once
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const ref = params.get("ref") || params.get("utm_source");
+      if (ref) {
+        setRefSource(ref);
+        localStorage.setItem("mockly_ref_source", ref);
+        track("landing_ref_detected", { ref });
+      } else {
+        const stored = localStorage.getItem("mockly_ref_source");
+        if (stored) setRefSource(stored);
+      }
+    } catch {}
   }, []);
 
   useEffect(() => {
@@ -97,13 +124,34 @@ const Hero: React.FC<HeroProps> = ({ onJoinWaitlist, onTryDemo }) => {
       </div>
 
       <div className="relative z-10 max-w-7xl mx-auto text-center">
-        {/* Badge */}
-        <div className="animate-on-scroll opacity-0 translate-y-8 transition-all duration-1000 ease-out mb-8">
+        {/* Badges */}
+        <div className="animate-on-scroll opacity-0 translate-y-8 transition-all duration-1000 ease-out mb-6 flex flex-col items-center gap-3">
           <div className="inline-flex items-center px-4 py-2 bg-white/80 backdrop-blur-xl rounded-full border border-gray-100/50 shadow-sm">
             <span className="text-gray-600 font-medium text-sm tracking-wide">
               🚀 Coming Soon - Be the first to know
             </span>
           </div>
+          <button
+            type="button"
+            onClick={() => {
+              track("cta_click", {
+                location: "hero_ph_badge",
+                action: "click_ph_badge",
+              });
+              window.open(
+                "https://www.producthunt.com/?ref=mockly_prelaunch",
+                "_blank",
+                "noopener,noreferrer"
+              );
+            }}
+            className="group inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-orange-200 bg-orange-50 text-orange-700 text-xs font-medium hover:bg-orange-100 transition"
+            data-ph-badge
+          >
+            <span className="uppercase tracking-wide">
+              Launching soon on Product Hunt
+            </span>
+            <ExternalLink className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+          </button>
         </div>
 
         {/* Main Headline */}
@@ -114,7 +162,7 @@ const Hero: React.FC<HeroProps> = ({ onJoinWaitlist, onTryDemo }) => {
 
         {/* Subheadline */}
         <p
-          className="animate-on-scroll opacity-0 translate-y-8 transition-all duration-1000 ease-out text-xl md:text-2xl text-gray-600 max-w-4xl mx-auto mb-12 leading-relaxed font-light"
+          className="animate-on-scroll opacity-0 translate-y-8 transition-all duration-1000 ease-out text-xl md:text-2xl text-gray-600 max-w-4xl mx-auto mb-8 leading-relaxed font-light"
           style={{ transitionDelay: "0.2s" }}
         >
           Mockly gives you adaptive AI mock interviews, instant coaching, and
@@ -122,15 +170,72 @@ const Hero: React.FC<HeroProps> = ({ onJoinWaitlist, onTryDemo }) => {
           calm, and sharp.
         </p>
 
-        {/* CTAs */}
+        {/* Incentive / Discount */}
         <div
-          className="animate-on-scroll opacity-0 translate-y-8 transition-all duration-1000 ease-out flex flex-col sm:flex-row gap-6 justify-center items-center mb-20"
+          className="animate-on-scroll opacity-0 translate-y-8 transition-all duration-1000 ease-out flex items-center justify-center gap-2 text-sm text-gray-700 mb-10"
+          style={{ transitionDelay: "0.3s" }}
+        >
+          <Tag className="w-4 h-4 text-gray-500" />
+          <span>
+            Early supporters get <strong>20% off</strong>
+          </span>
+        </div>
+
+        {/* Inline Waitlist Form */}
+        <form
+          className="animate-on-scroll opacity-0 translate-y-8 transition-all duration-1000 ease-out max-w-xl mx-auto flex flex-col sm:flex-row gap-4 mb-14"
+          style={{ transitionDelay: "0.33s" }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            const fd = new FormData(e.currentTarget);
+            const email = (fd.get("email") as string)?.trim();
+            if (!email) return;
+            try {
+              localStorage.setItem("prefill_waitlist_email", email);
+            } catch {}
+            track("cta_click", {
+              location: "hero_inline_form",
+              action: "open_waitlist",
+              has_email: true,
+              ref: refSource || undefined,
+            });
+            onJoinWaitlist?.();
+          }}
+        >
+          <input
+            type="email"
+            name="email"
+            required
+            placeholder="Enter your email"
+            className="flex-1 rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/20 focus:border-gray-900 transition text-sm md:text-base"
+            onFocus={() =>
+              track("cta_click", {
+                location: "hero_inline_form",
+                action: "focus_email",
+              })
+            }
+          />
+          <button
+            type="submit"
+            className="bg-gray-900 hover:bg-gray-800 text-white font-medium px-6 py-3 rounded-xl text-base transition shadow-sm hover:shadow-md"
+          >
+            Get Early Access
+          </button>
+        </form>
+
+        {/* CTAs (secondary after inline form) */}
+        <div
+          className="animate-on-scroll opacity-0 translate-y-8 transition-all duration-1000 ease-out flex flex-col sm:flex-row gap-6 justify-center items-center mb-16"
           style={{ transitionDelay: "0.4s" }}
         >
           <button
             data-waitlist
             onClick={() => {
-              track("cta_click", { location: "hero", action: "open_waitlist" });
+              track("cta_click", {
+                location: "hero",
+                action: "open_waitlist",
+                ref: refSource || undefined,
+              });
               onJoinWaitlist?.();
             }}
             className="group bg-gray-900 hover:bg-gray-800 text-white font-medium px-8 py-4 rounded-xl text-lg transition-all duration-200 shadow-sm hover:shadow-md flex items-center space-x-2"
@@ -141,7 +246,11 @@ const Hero: React.FC<HeroProps> = ({ onJoinWaitlist, onTryDemo }) => {
 
           <button
             onClick={() => {
-              track("cta_click", { location: "hero", action: "open_demo" });
+              track("cta_click", {
+                location: "hero",
+                action: "open_demo",
+                ref: refSource || undefined,
+              });
               onTryDemo?.();
             }}
             className="group border border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400 font-medium px-8 py-4 rounded-xl text-lg transition-all duration-200 flex items-center space-x-2"
@@ -171,30 +280,61 @@ const Hero: React.FC<HeroProps> = ({ onJoinWaitlist, onTryDemo }) => {
               </span>
             </div>
             <div className="flex items-center space-x-2">
-              <div className="flex items-center">
-                {[1, 2, 3, 4, 5].map((i) => {
-                  const active = betaAvg ? i <= Math.round(betaAvg) : false;
-                  return (
-                    <Star
-                      key={i}
-                      className={`w-4 h-4 ${
-                        active
-                          ? "text-yellow-400 fill-yellow-400"
-                          : "text-gray-300"
-                      } transition-colors`}
-                    />
-                  );
-                })}
-              </div>
+              {betaTotal !== null && betaTotal < 5 ? (
+                <span className="text-sm font-medium text-gray-500 px-3 py-1 rounded-full border border-gray-200 bg-white/70 backdrop-blur">
+                  New
+                </span>
+              ) : (
+                <div className="flex items-center">
+                  {[1, 2, 3, 4, 5].map((i) => {
+                    const active = betaAvg ? i <= Math.round(betaAvg) : false;
+                    return (
+                      <Star
+                        key={i}
+                        className={`w-4 h-4 ${
+                          active
+                            ? "text-yellow-400 fill-yellow-400"
+                            : "text-gray-300"
+                        } transition-colors`}
+                      />
+                    );
+                  })}
+                </div>
+              )}
               <span className="font-medium text-sm">
-                {betaAvg ? `${betaAvg.toFixed(1)}` : "—"}
-                {betaTotal !== null ? ` (${betaTotal})` : ""} beta rating
+                {betaTotal !== null && betaTotal < 5
+                  ? "Collecting early feedback"
+                  : betaAvg
+                  ? `${betaAvg.toFixed(1)}${
+                      betaTotal !== null ? ` (${betaTotal})` : ""
+                    } beta rating`
+                  : "— beta rating"}
               </span>
+            </div>
+          </div>
+          {/* Preview Section */}
+          <div
+            className="animate-on-scroll opacity-0 translate-y-8 transition-all duration-1000 ease-out"
+            style={{ transitionDelay: "0.75s" }}
+          >
+            <div className="max-w-5xl mx-auto mb-12">
+              <div className="relative rounded-2xl overflow-hidden border border-gray-200 bg-white shadow-sm">
+                <div className="absolute inset-0 bg-gradient-to-b from-white/0 to-white/60 pointer-events-none" />
+                <img
+                  src="/preview.png"
+                  alt="Mockly AI mock interview interface preview"
+                  className="w-full h-auto object-cover"
+                  loading="lazy"
+                />
+              </div>
+              <p className="text-xs text-gray-500 mt-3">
+                Early preview – UI subject to refinement.
+              </p>
             </div>
           </div>
           <div
             className="animate-on-scroll opacity-0 translate-y-8 transition-all duration-1000 ease-out"
-            style={{ transitionDelay: "0.8s" }}
+            style={{ transitionDelay: "0.85s" }}
           >
             <p className="uppercase tracking-wider text-xs font-medium text-gray-500 mb-4">
               Practice like you already work there

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   X,
   Mail,
@@ -67,6 +67,17 @@ const WaitlistModal: React.FC<WaitlistModalProps> = ({ onClose }) => {
     });
   };
 
+  // Prefill email from inline form (localStorage)
+  useEffect(() => {
+    try {
+      const pref = localStorage.getItem("prefill_waitlist_email");
+      if (pref && !formData.email) {
+        setFormData((f) => ({ ...f, email: pref }));
+        track("waitlist_prefill_email");
+      }
+    } catch {}
+  }, [formData.email]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -74,7 +85,12 @@ const WaitlistModal: React.FC<WaitlistModalProps> = ({ onClose }) => {
     setError(null);
 
     try {
-      const payload = {
+      let refSource: string | null = null;
+      try {
+        refSource = localStorage.getItem("mockly_ref_source");
+      } catch {}
+
+      const payload: any = {
         email: formData.email.trim().toLowerCase(),
         firstName: formData.firstName.trim(),
         lastName: formData.lastName.trim(),
@@ -83,6 +99,7 @@ const WaitlistModal: React.FC<WaitlistModalProps> = ({ onClose }) => {
         experienceLevel: formData.experience || undefined,
         interests: formData.interests,
       };
+      if (refSource) payload.ref = refSource;
 
       // Submit to backend which handles email sending
       const response = await fetch(

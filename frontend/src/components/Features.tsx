@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { track } from "../lib/analytics";
-import { Brain, Target, BarChart3, Shield, Zap, Award } from "lucide-react";
+import { RefreshCw, Sparkles, BarChart3, Mic } from "lucide-react";
 
 const Features = () => {
   useEffect(() => {
@@ -23,40 +23,28 @@ const Features = () => {
 
   const features = [
     {
-      icon: Brain,
-      title: "AI-Powered Analysis",
+      icon: RefreshCw,
+      title: "Adaptive Mock Interviews",
       description:
-        "Advanced machine learning algorithms analyze your responses and provide personalized feedback for continuous improvement.",
+        "Questions evolve based on your previous answers so every session feels like a real, dynamic interviewer.",
     },
     {
-      icon: Target,
-      title: "Industry-Specific Training",
+      icon: Sparkles,
+      title: "Instant AI Coaching",
       description:
-        "Tailored interview scenarios for your specific role and industry, from tech to finance to healthcare.",
+        "Get immediate, actionable guidance on clarity, structure, depth and what to improve next.",
     },
     {
       icon: BarChart3,
-      title: "Performance Analytics",
+      title: "Performance Metrics",
       description:
-        "Detailed insights into your interview performance with actionable recommendations for improvement.",
+        "Track progress across signal areas: structure, relevance, confidence and growth over time.",
     },
     {
-      icon: Shield,
-      title: "Secure & Private",
+      icon: Mic,
+      title: "Voice Practice Mode",
       description:
-        "Your practice sessions and data are encrypted and secure. We never share your information.",
-    },
-    {
-      icon: Zap,
-      title: "Real-time Feedback",
-      description:
-        "Get instant feedback on your answers, body language, and speaking pace during practice sessions.",
-    },
-    {
-      icon: Award,
-      title: "Proven Results",
-      description:
-        "Join thousands of professionals who have successfully landed their dream jobs using our platform.",
+        "Simulate live interviews with spoken answers for realistic pacing, pressure and articulation training.",
     },
   ];
 
@@ -70,17 +58,17 @@ const Features = () => {
               id="features"
               className="font-semibold text-4xl md:text-6xl text-gray-900 mb-6 tracking-tight"
             >
-              Why Mockly?
+              Built For Real Growth
             </h2>
             <p className="text-xl text-gray-600 max-w-3xl mx-auto font-light">
-              Mockly blends adaptive AI coaching with realistic practice so you
-              ship confident interview performance faster.
+              Four focused pillars turn scattered practice into measurable
+              interview improvement.
             </p>
           </div>
         </div>
 
         {/* Features Grid */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
           {features.map((feature, index) => {
             const Icon = feature.icon;
             return (

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { track } from "../lib/analytics";
 import { Play, ArrowRight, Users, Star } from "lucide-react";
 import { useWaitlistCount } from "../hooks/useWaitlistCount";
@@ -11,6 +11,61 @@ interface HeroProps {
 const Hero: React.FC<HeroProps> = ({ onJoinWaitlist, onTryDemo }) => {
   const sectionRef = useRef<HTMLElement>(null);
   const { display: waitlistDisplay } = useWaitlistCount();
+  const [betaAvg, setBetaAvg] = useState<number | null>(null);
+  const [betaTotal, setBetaTotal] = useState<number | null>(null);
+
+  useEffect(() => {
+    let aborted = false;
+    const KEY = "beta_summary_cache_v1";
+    const TTL_MS = 5 * 60 * 1000; // 5 minutos
+
+    const hydrateFromCache = () => {
+      try {
+        const raw = localStorage.getItem(KEY);
+        if (!raw) return false;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") return false;
+        if (Date.now() - parsed.timestamp > TTL_MS) return false;
+        if (typeof parsed.average === "number") setBetaAvg(parsed.average);
+        if (typeof parsed.total === "number") setBetaTotal(parsed.total);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    const fetchAndCache = async () => {
+      try {
+        const res = await fetch("/api/beta/summary");
+        const json = await res.json();
+        if (aborted) return;
+        if (json && json.success !== false) {
+          if (typeof json.average === "number") setBetaAvg(json.average);
+          if (typeof json.total === "number") setBetaTotal(json.total);
+          try {
+            localStorage.setItem(
+              KEY,
+              JSON.stringify({
+                average: json.average,
+                total: json.total,
+                timestamp: Date.now(),
+              })
+            );
+          } catch {}
+        }
+      } catch {
+        // silencioso
+      }
+    };
+
+    const hadCache = hydrateFromCache();
+    if (!hadCache) fetchAndCache();
+    const interval = setInterval(fetchAndCache, 60000);
+    return () => {
+      aborted = true;
+      clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -116,15 +171,25 @@ const Hero: React.FC<HeroProps> = ({ onJoinWaitlist, onTryDemo }) => {
               </span>
             </div>
             <div className="flex items-center space-x-2">
-              <div className="flex">
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <Star
-                    key={i}
-                    className="w-4 h-4 text-gray-400 fill-current"
-                  />
-                ))}
+              <div className="flex items-center">
+                {[1, 2, 3, 4, 5].map((i) => {
+                  const active = betaAvg ? i <= Math.round(betaAvg) : false;
+                  return (
+                    <Star
+                      key={i}
+                      className={`w-4 h-4 ${
+                        active
+                          ? "text-yellow-400 fill-yellow-400"
+                          : "text-gray-300"
+                      } transition-colors`}
+                    />
+                  );
+                })}
               </div>
-              <span className="font-medium text-sm">Private beta rating</span>
+              <span className="font-medium text-sm text-gray-600">
+                {betaAvg ? `${betaAvg.toFixed(1)}★` : "—"}
+                {betaTotal !== null ? ` (${betaTotal})` : ""} beta rating
+              </span>
             </div>
           </div>
           <div

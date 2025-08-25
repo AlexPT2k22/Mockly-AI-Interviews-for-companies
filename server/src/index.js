@@ -3,6 +3,7 @@ import { env } from "./lib/env.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import aiRoutes from "./routes/ai.js";
 import waitlistRoutes from "./routes/waitlist.js";
+import betaRoutes from "./routes/beta.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
 const app = express();
@@ -15,6 +16,7 @@ app.get("/api/health", (_req, res) => {
 
 app.use("/api/ai", aiRoutes);
 app.use("/api/waitlist", waitlistRoutes);
+app.use("/api/beta", betaRoutes);
 app.use(errorHandler);
 
 app.listen(env.PORT, () => {

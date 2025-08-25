@@ -48,6 +48,15 @@ Environment variable `VITE_POSTHOG_KEY` should be defined in a `.env` file.
 
 Add new events consistently with snake_case names.
 
+### Beta Feedback Events
+
+| Area        | Events                                      |
+| ----------- | ------------------------------------------- |
+| Beta Rating | `beta_rating_view`, `beta_rating_submitted` |
+
+`beta_rating_view` dispara quando o widget de avaliação é montado após sucesso na waitlist.
+`beta_rating_submitted` dispara após envio (upsert) do feedback.
+
 ## Waitlist Storage (Supabase)
 
 Create the `waitlist` table in Supabase (SQL editor):
@@ -101,3 +110,50 @@ O hook `useWaitlistCount` faz:
 - Assina canal `postgres_changes` em `waitlist` (qualquer evento) e reconsulta o count.
 
 Evento analytics: `waitlist_count_update` dispara a cada atualização.
+
+## Beta Feedback (Private Beta Rating)
+
+Tabela recomendada em Supabase:
+
+```sql
+create table if not exists public.beta_feedback (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique,
+  rating int2 not null check (rating between 1 and 5),
+  comment text,
+  context text,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.beta_feedback enable row level security;
+
+create policy "Allow upsert beta feedback" on public.beta_feedback
+  for insert with check (true);
+create policy "Allow update beta feedback" on public.beta_feedback
+  for update using (true) with check (true);
+create policy "Allow select beta feedback aggregate" on public.beta_feedback
+  for select using (true);
+
+-- (Opcional) índice para agregações
+create index if not exists beta_feedback_rating_idx on public.beta_feedback (rating);
+```
+
+Fluxo:
+
+1. Usuário envia waitlist com email.
+2. Modal de sucesso inclui componente `BetaRating`.
+3. Envio: `POST /api/beta/feedback` faz upsert por email (1 feedback por email; reenviar substitui).
+4. Resumo: `GET /api/beta/summary` retorna média, total e distribuição (1–5).
+
+Endpoints (backend):
+
+```
+POST /api/beta/feedback
+Body: { email: string, rating: 1-5, comment?: string }
+Response: { success: true, updated: true }
+
+GET /api/beta/summary
+Response: { success: true, average: number, total: number, distribution: {1:n,2:n,3:n,4:n,5:n} }
+```
+
+Widget UI: `BetaRating` (estrelas + textarea opcional). Eventos analytics: `beta_rating_view`, `beta_rating_submitted`.

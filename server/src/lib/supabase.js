@@ -92,4 +92,72 @@ export async function getWaitlistCount() {
   }
 }
 
+/**
+ * Upsert beta feedback by email (one feedback per email)
+ * @param {{ email: string, rating: number, comment?: string|null, context?: string|null }} fb
+ */
+export async function upsertBetaFeedback(fb) {
+  console.log("[SUPABASE] upsertBetaFeedback called with:", fb);
+  if (!supabase) {
+    console.log(`[MOCK MODE] Would upsert beta feedback:`, fb);
+    return { success: true, mock: true };
+  }
+  try {
+    const { data, error } = await supabase
+      .from("beta_feedback")
+      .upsert(
+        {
+          email: fb.email.toLowerCase(),
+          rating: fb.rating,
+          comment: fb.comment?.trim() || null,
+          context: fb.context?.trim() || null,
+        },
+        { onConflict: "email" }
+      )
+      .select()
+      .single();
+
+    if (error) throw error;
+    return { success: true, data };
+  } catch (error) {
+    console.error("[SUPABASE] Failed to upsert beta feedback:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get beta feedback summary (average, count, distribution)
+ */
+export async function getBetaFeedbackSummary() {
+  console.log("[SUPABASE] getBetaFeedbackSummary called");
+  if (!supabase) {
+    return {
+      success: true,
+      mock: true,
+      average: 4.7,
+      total: 12,
+      distribution: { 1: 0, 2: 1, 3: 1, 4: 2, 5: 8 },
+    };
+  }
+  try {
+    const { data, error } = await supabase
+      .from("beta_feedback")
+      .select("rating");
+    if (error) throw error;
+    const total = data.length;
+    const distribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    let sum = 0;
+    for (const row of data) {
+      const r = row.rating;
+      if (distribution[r] !== undefined) distribution[r] += 1;
+      sum += r;
+    }
+    const average = total ? +(sum / total).toFixed(2) : 0;
+    return { success: true, average, total, distribution };
+  } catch (error) {
+    console.error("[SUPABASE] Failed to get beta feedback summary:", error);
+    throw error;
+  }
+}
+
 export { supabase };

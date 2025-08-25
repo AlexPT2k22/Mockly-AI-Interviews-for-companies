@@ -8,6 +8,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { track } from "../lib/analytics";
+import { BetaRating } from "./BetaRating";
 
 interface WaitlistModalProps {
   onClose: () => void;
@@ -84,13 +85,16 @@ const WaitlistModal: React.FC<WaitlistModalProps> = ({ onClose }) => {
       };
 
       // Submit to backend which handles email sending
-      const response = await fetch("https://mocklyalpha.onrender.com/api/waitlist", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
+      const response = await fetch(
+        "https://mocklyalpha.onrender.com/api/waitlist",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        }
+      );
 
       const result = await response.json();
 
@@ -122,38 +126,45 @@ const WaitlistModal: React.FC<WaitlistModalProps> = ({ onClose }) => {
   if (success) {
     return (
       <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl border border-gray-200 w-full max-w-md p-8 text-center">
-          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
-            <CheckCircle className="w-8 h-8 text-green-600" />
-          </div>
-          <h3 className="text-2xl font-bold text-gray-900 mb-4">
-            You're on the list!
-          </h3>
-          <p className="text-gray-600 mb-6">
-            Thanks for joining our waitlist! We've sent you a welcome email with
-            a special 20% discount code for when we launch.
-          </p>
-          <div className="bg-gray-50 rounded-xl p-4 mb-6">
-            <p className="text-sm text-gray-700">
-              <strong>What's next?</strong>
-              <br />
-              • Check your email for your 20% discount code
-              <br />
-              • Get exclusive updates on our progress
-              <br />
-              • Early access to beta features
-              <br />• Special launch pricing with your discount
+        <div className="bg-white rounded-2xl border border-gray-200 w-full max-w-xl p-8">
+          <div className="text-center">
+            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <CheckCircle className="w-8 h-8 text-green-600" />
+            </div>
+            <h3 className="text-2xl font-bold text-gray-900 mb-4">
+              You're on the list!
+            </h3>
+            <p className="text-gray-600 mb-6">
+              Thanks for joining our waitlist! We've sent you a welcome email
+              with a special 20% discount code for when we launch.
             </p>
           </div>
-          <button
-            onClick={() => {
-              track("waitlist_success_close");
-              onClose();
-            }}
-            className="w-full bg-gray-900 text-white px-6 py-3 rounded-xl font-medium hover:bg-gray-800 transition-colors duration-200"
-          >
-            Got it!
-          </button>
+          <div className="bg-gray-50 rounded-xl p-4 mb-6 text-sm text-gray-700">
+            <p className="font-medium mb-1">What's next?</p>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>Check your email for your discount code</li>
+              <li>Get exclusive updates on our progress</li>
+              <li>Early access to beta features</li>
+              <li>Special launch pricing with your discount</li>
+            </ul>
+          </div>
+          <div className="mb-6">
+            <BetaRating
+              email={formData.email}
+              onSubmitted={() => track("beta_rating_widget_submitted")}
+            />
+          </div>
+          <div className="flex justify-end">
+            <button
+              onClick={() => {
+                track("waitlist_success_close");
+                onClose();
+              }}
+              className="px-6 h-11 bg-gray-900 text-white rounded-xl font-medium hover:bg-gray-800 transition-colors duration-200"
+            >
+              Close
+            </button>
+          </div>
         </div>
       </div>
     );

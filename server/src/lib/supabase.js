@@ -61,4 +61,35 @@ export async function insertWaitlistUser(userData) {
   }
 }
 
+/**
+ * Get the total count of users in the waitlist
+ * @returns {Promise<number>} - Count of waitlist users
+ */
+export async function getWaitlistCount() {
+  console.log("[SUPABASE] getWaitlistCount called");
+
+  if (!supabase) {
+    console.log(`[MOCK MODE] Returning mock waitlist count: 247`);
+    return 247; // Mock count for development
+  }
+
+  try {
+    console.log("[SUPABASE] Fetching waitlist count...");
+    const { count, error } = await supabase
+      .from("waitlist")
+      .select("*", { count: "exact", head: true });
+
+    if (error) {
+      console.log("[SUPABASE] Count query error:", error);
+      throw error;
+    }
+
+    console.log(`[SUPABASE] Waitlist count: ${count}`);
+    return count || 0;
+  } catch (error) {
+    console.error("[SUPABASE] Failed to get waitlist count:", error);
+    throw error;
+  }
+}
+
 export { supabase };

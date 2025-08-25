@@ -4,7 +4,7 @@ import {
   sendWaitlistWelcomeEmail,
   generateDiscountCode,
 } from "../lib/resend.js";
-import { insertWaitlistUser } from "../lib/supabase.js";
+import { insertWaitlistUser, getWaitlistCount } from "../lib/supabase.js";
 
 const router = express.Router();
 
@@ -17,6 +17,25 @@ const waitlistSchema = z.object({
   company: z.string().optional(),
   experienceLevel: z.string().optional(),
   interests: z.array(z.string()).optional(),
+});
+
+// GET /api/waitlist/count - Get waitlist count
+router.get("/count", async (req, res) => {
+  try {
+    const count = await getWaitlistCount();
+
+    res.status(200).json({
+      success: true,
+      count,
+    });
+  } catch (error) {
+    console.error("Get waitlist count error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to get waitlist count",
+    });
+  }
 });
 
 // POST /api/waitlist - Join waitlist

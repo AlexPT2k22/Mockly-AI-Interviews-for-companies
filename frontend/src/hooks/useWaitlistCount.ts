@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
 import { track } from '../lib/analytics';
 
 function formatCount(n: number) {
@@ -14,40 +13,29 @@ export function useWaitlistCount() {
   const [display, setDisplay] = useState<string>('—');
 
   useEffect(() => {
-    let channel: ReturnType<typeof supabase.channel> | null = null;
-
-    const fetchInitial = async () => {
-      const { count: c, error } = await supabase
-        .from('waitlist')
-        .select('*', { count: 'exact', head: true });
-      if (!error && typeof c === 'number') {
-        setCount(c);
-        setDisplay(formatCount(c));
+    const fetchCount = async () => {
+      try {
+        const response = await fetch('/api/waitlist/count');
+        const result = await response.json();
+        
+        if (result.success && typeof result.count === 'number') {
+          setCount(result.count);
+          setDisplay(formatCount(result.count));
+          track('waitlist_count_loaded', { count: result.count });
+        }
+      } catch (error) {
+        console.error('Failed to fetch waitlist count:', error);
+        // Keep default display if fetch fails
       }
     };
 
-    fetchInitial();
+    fetchCount();
 
-    channel = supabase
-      .channel('waitlist_count')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'waitlist' },
-        async () => {
-          const { count: c } = await supabase
-            .from('waitlist')
-            .select('*', { count: 'exact', head: true });
-          if (typeof c === 'number') {
-            setCount(c);
-            setDisplay(formatCount(c));
-            track('waitlist_count_update', { count: c });
-          }
-        }
-      )
-      .subscribe();
+    // Refresh count every 30 seconds
+    const interval = setInterval(fetchCount, 30000);
 
     return () => {
-      if (channel) supabase.removeChannel(channel);
+      clearInterval(interval);
     };
   }, []);
 

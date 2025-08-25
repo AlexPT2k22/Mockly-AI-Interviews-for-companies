@@ -59,7 +59,7 @@ export const BetaRating: React.FC<BetaRatingProps> = ({
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch("/api/beta/feedback", {
+      const res = await fetch("https://mocklyalpha.onrender.com/api/beta/feedback", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

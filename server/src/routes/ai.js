@@ -14,10 +14,13 @@ const router = Router();
 
 router.post("/question", async (req, res, next) => {
   try {
-    const schema = z.object({ category: z.string().min(2).max(40) });
-    const { category } = schema.parse(req.body);
-    const q = await generateQuestion(category);
-    res.json({ question: q });
+    const schema = z.object({
+      category: z.string().min(2).max(40),
+      language: z.enum(["en", "pt"]).optional(),
+    });
+    const { category, language } = schema.parse(req.body);
+    const q = await generateQuestion(category, language || "en");
+    res.json({ question: q, language: language || "en" });
   } catch (e) {
     next(e);
   }

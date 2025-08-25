@@ -47,6 +47,8 @@ const DemoModal: React.FC<DemoModalProps> = ({ onClose }) => {
   const [step, setStep] = useState<Step>("category");
   const [category, setCategory] = useState<string | null>(null);
   const [question, setQuestion] = useState<string>("");
+  const [language, setLanguage] = useState<"en" | "pt">("en");
+  const [questionLoading, setQuestionLoading] = useState<boolean>(false);
   const [mode, setMode] = useState<"voice" | "text" | null>(null);
   const [answer, setAnswer] = useState<string>("");
   const [recording, setRecording] = useState(false);
@@ -129,10 +131,33 @@ const DemoModal: React.FC<DemoModalProps> = ({ onClose }) => {
     };
   }, [recording]);
 
-  const selectCategory = (c: (typeof CATEGORIES)[number]) => {
+  const selectCategory = async (c: (typeof CATEGORIES)[number]) => {
     setCategory(c.key);
-    setQuestion(c.sample);
-    setStep("question");
+    setQuestionLoading(true);
+
+    try {
+      // Try to get a real AI-generated question
+      const response = await fetch("http://localhost:8787/api/ai/question", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category: c.key, language }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setQuestion(data.question || c.sample);
+      } else {
+        // Fallback to sample question
+        setQuestion(c.sample);
+      }
+    } catch (error) {
+      console.error("Failed to generate question:", error);
+      // Fallback to sample question
+      setQuestion(c.sample);
+    } finally {
+      setQuestionLoading(false);
+      setStep("question");
+    }
   };
 
   const chooseMode = (m: "voice" | "text") => {
@@ -246,20 +271,41 @@ const DemoModal: React.FC<DemoModalProps> = ({ onClose }) => {
     }
   };
 
-  const submitAnswer = () => {
+  const submitAnswer = async () => {
     if (recording) {
       // auto stop and wait a moment for final result
       recognitionRef.current?.stop();
       return;
     }
+
     setStep("analyzing");
-    // Simulate analysis (~2.5s)
-    setTimeout(() => {
+
+    try {
+      // Try to get real AI analysis
+      const response = await fetch("http://localhost:8787/api/ai/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ answer }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setAnalysis(data);
+      } else {
+        // Fallback to mock analysis
+        const scores = generateScores(answer);
+        const feedback = buildFeedback(scores, answer);
+        setAnalysis({ scores, feedback });
+      }
+    } catch (error) {
+      console.error("Failed to analyze answer:", error);
+      // Fallback to mock analysis
       const scores = generateScores(answer);
       const feedback = buildFeedback(scores, answer);
       setAnalysis({ scores, feedback });
+    } finally {
       setStep("results");
-    }, 2500);
+    }
   };
 
   const generateScores = (text: string) => {
@@ -314,6 +360,29 @@ const DemoModal: React.FC<DemoModalProps> = ({ onClose }) => {
         <p className="text-gray-600 mt-2">
           Select a category to see how Mockly generates targeted questions.
         </p>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <label className="text-sm font-medium text-gray-700">Language:</label>
+          <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg p-1">
+            {[
+              { code: "en", label: "English" },
+              { code: "pt", label: "Português" },
+            ].map((l) => (
+              <button
+                key={l.code}
+                type="button"
+                onClick={() => setLanguage(l.code as "en" | "pt")}
+                className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
+                  language === l.code
+                    ? "bg-gray-900 text-white"
+                    : "text-gray-700 hover:bg-gray-200"
+                }`}
+                aria-pressed={language === l.code}
+              >
+                {l.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
       <div className="grid sm:grid-cols-2 gap-4">
         {CATEGORIES.map((c) => (
@@ -321,6 +390,7 @@ const DemoModal: React.FC<DemoModalProps> = ({ onClose }) => {
             key={c.key}
             onClick={() => selectCategory(c)}
             className="group text-left p-5 rounded-xl border border-gray-200 hover:border-gray-900 hover:bg-gray-50 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-900"
+            disabled={questionLoading}
           >
             <div className="flex items-center justify-between mb-2">
               <span className="font-semibold text-gray-900">{c.label}</span>
@@ -330,6 +400,11 @@ const DemoModal: React.FC<DemoModalProps> = ({ onClose }) => {
           </button>
         ))}
       </div>
+      {questionLoading && (
+        <div className="flex items-center gap-2 text-sm text-gray-600">
+          <Loader2 className="w-4 h-4 animate-spin" /> Generating question...
+        </div>
+      )}
     </div>
   );
 
@@ -337,11 +412,18 @@ const DemoModal: React.FC<DemoModalProps> = ({ onClose }) => {
     <div className="space-y-8">
       <div>
         <h4 className="text-xl font-semibold text-gray-900">
-          Sample {category} question
+          AI-Generated {category} Question
         </h4>
-        <p className="text-gray-700 mt-4 p-4 rounded-xl bg-gray-50 border border-gray-200">
-          {question}
-        </p>
+        {questionLoading ? (
+          <div className="flex items-center gap-2 mt-4 p-4 rounded-xl bg-gray-50 border border-gray-200">
+            <Loader2 className="w-4 h-4 animate-spin text-gray-600" />
+            <p className="text-gray-600">Generating personalized question...</p>
+          </div>
+        ) : (
+          <p className="text-gray-700 mt-4 p-4 rounded-xl bg-gray-50 border border-gray-200">
+            {question}
+          </p>
+        )}
       </div>
       <div>
         <p className="text-gray-600 font-medium mb-3">
@@ -350,7 +432,7 @@ const DemoModal: React.FC<DemoModalProps> = ({ onClose }) => {
         <div className="flex flex-col sm:flex-row gap-4">
           <button
             onClick={() => chooseMode("voice")}
-            disabled={!voiceSupported}
+            disabled={!voiceSupported || questionLoading}
             className="flex-1 p-4 rounded-xl border border-gray-200 hover:border-gray-900 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-left"
           >
             <div className="flex items-center gap-2 font-semibold text-gray-900">
@@ -364,7 +446,8 @@ const DemoModal: React.FC<DemoModalProps> = ({ onClose }) => {
           </button>
           <button
             onClick={() => chooseMode("text")}
-            className="flex-1 p-4 rounded-xl border border-gray-200 hover:border-gray-900 hover:bg-gray-50 transition-colors text-left"
+            disabled={questionLoading}
+            className="flex-1 p-4 rounded-xl border border-gray-200 hover:border-gray-900 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-left"
           >
             <div className="flex items-center gap-2 font-semibold text-gray-900">
               <Type className="w-4 h-4" /> Text

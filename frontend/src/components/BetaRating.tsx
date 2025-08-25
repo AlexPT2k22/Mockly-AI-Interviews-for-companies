@@ -21,16 +21,16 @@ const Star: React.FC<{
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
       onClick={onClick}
-      className="w-9 h-9 flex items-center justify-center focus:outline-none focus-visible:ring ring-offset-1 rounded group"
+      className="w-10 h-10 flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2 rounded-lg group transition-all duration-200"
     >
       <svg
         viewBox="0 0 24 24"
-        className={`w-7 h-7 transition-colors ${
+        className={`w-8 h-8 transition-all duration-200 ${
           filled || hover
-            ? "text-yellow-400 fill-yellow-400"
-            : "text-zinc-500 fill-transparent"
+            ? "text-yellow-400 fill-yellow-400 scale-110"
+            : "text-gray-300 fill-transparent hover:text-gray-400 hover:scale-105"
         } group-active:scale-95`}
-        strokeWidth={1.2}
+        strokeWidth={1.5}
         stroke="currentColor"
       >
         <path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
@@ -81,14 +81,17 @@ export const BetaRating: React.FC<BetaRatingProps> = ({
   };
 
   return (
-    <div className="p-4 md:p-6 border border-zinc-800 rounded-xl bg-gradient-to-b from-zinc-900/70 to-black shadow-inner">
-      <div className="flex items-center gap-2 mb-3">
-        <h3 className="text-sm font-medium tracking-wide text-zinc-300">
-          Avalie sua expectativa
+    <div className="bg-gray-50/50 border border-gray-200 rounded-xl p-6">
+      <div className="text-center mb-4">
+        <h3 className="text-lg font-medium text-gray-900 mb-2">
+          Rate your excitement
         </h3>
+        <p className="text-sm text-gray-600">
+          Help us understand how you feel about Mockly
+        </p>
       </div>
       <div
-        className="flex items-center gap-1 mb-3"
+        className="flex items-center justify-center gap-2 mb-6"
         onMouseLeave={() => setHover(0)}
       >
         {Array.from({ length: 5 }).map((_, i) => {
@@ -109,28 +112,32 @@ export const BetaRating: React.FC<BetaRatingProps> = ({
       <textarea
         value={comment}
         disabled={submitted}
-        placeholder="Opcional: deixe um comentário (feedback, expectativa, dúvida)"
+        placeholder="Optional: Share your thoughts, expectations, or questions..."
         onChange={(e) => setComment(e.target.value)}
-        className="w-full bg-zinc-950/60 border border-zinc-800 rounded-lg px-3 py-2 text-sm resize-y min-h-[80px] placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600 disabled:opacity-60"
+        className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm resize-y min-h-[80px] placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent disabled:opacity-60 disabled:bg-gray-50 transition-all duration-200"
         maxLength={1000}
       />
-      <div className="flex items-center justify-between mt-3">
-        <span className="text-xs text-zinc-500">{comment.length}/1000</span>
+      <div className="flex items-center justify-between mt-4">
+        <span className="text-xs text-gray-500">{comment.length}/1000</span>
         {!submitted ? (
           <button
             onClick={submit}
             disabled={!rating || submitting}
-            className="px-4 h-9 text-sm font-medium rounded-lg bg-yellow-400 text-black disabled:opacity-40 disabled:cursor-not-allowed hover:bg-yellow-300 transition"
+            className="px-6 py-2 text-sm font-medium rounded-xl bg-gray-900 text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-800 transition-all duration-200 shadow-sm hover:shadow-md"
           >
-            {submitting ? "Enviando..." : "Enviar"}
+            {submitting ? "Submitting..." : "Submit Rating"}
           </button>
         ) : (
-          <span className="text-sm text-green-400">
-            Obrigado pelo feedback!
+          <span className="text-sm text-green-600 font-medium">
+            Thank you for your feedback!
           </span>
         )}
       </div>
-      {error && <div className="mt-2 text-xs text-red-400">{error}</div>}
+      {error && (
+        <div className="mt-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          {error}
+        </div>
+      )}
     </div>
   );
 };

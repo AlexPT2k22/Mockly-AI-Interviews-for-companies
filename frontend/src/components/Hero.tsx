@@ -186,7 +186,7 @@ const Hero: React.FC<HeroProps> = ({ onJoinWaitlist, onTryDemo }) => {
                   );
                 })}
               </div>
-              <span className="font-medium text-sm text-gray-600">
+              <span className="font-medium text-sm">
                 {betaAvg ? `${betaAvg.toFixed(1)}★` : "—"}
                 {betaTotal !== null ? ` (${betaTotal})` : ""} beta rating
               </span>

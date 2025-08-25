@@ -15,6 +15,8 @@ export const env = {
   MAX_AUDIO_BYTES: parseInt(req("MAX_AUDIO_BYTES", "5000000"), 10),
   RESEND_API_KEY: req("RESEND_API_KEY"),
   FROM_EMAIL: req("FROM_EMAIL", "noreply@mockly.com"),
+  SUPABASE_URL: req("SUPABASE_URL"),
+  SUPABASE_ANON_KEY: req("SUPABASE_ANON_KEY"),
 };
 
 export const isMockMode = !env.OPENAI_API_KEY;

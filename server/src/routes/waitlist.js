@@ -4,6 +4,7 @@ import {
   sendWaitlistWelcomeEmail,
   generateDiscountCode,
 } from "../lib/resend.js";
+import { insertWaitlistUser } from "../lib/supabase.js";
 
 const router = express.Router();
 
@@ -24,6 +25,20 @@ router.post("/", async (req, res) => {
     // Validate request body
     const validatedData = waitlistSchema.parse(req.body);
 
+    // Prepare user data for database
+    const userData = {
+      email: validatedData.email.toLowerCase().trim(),
+      first_name: validatedData.firstName.trim(),
+      last_name: validatedData.lastName.trim(),
+      role: validatedData.role?.trim() || null,
+      company: validatedData.company?.trim() || null,
+      experience_level: validatedData.experienceLevel || null,
+      interests: validatedData.interests || [],
+    };
+
+    // Insert user into Supabase
+    const insertResult = await insertWaitlistUser(userData);
+
     // Generate discount code
     const discountCode = generateDiscountCode(validatedData.email);
 
@@ -38,20 +53,15 @@ router.post("/", async (req, res) => {
       // Don't fail the whole request if email fails - log and continue
     }
 
-    // Return success response with user data (for frontend to handle Supabase insertion)
+    // Return success response
     res.status(200).json({
       success: true,
-      message: "Successfully joined waitlist",
+      message: insertResult.duplicate
+        ? "Email already registered - welcome email sent anyway"
+        : "Successfully joined waitlist",
       discountCode,
-      userData: {
-        email: validatedData.email.toLowerCase().trim(),
-        first_name: validatedData.firstName.trim(),
-        last_name: validatedData.lastName.trim(),
-        role: validatedData.role?.trim() || null,
-        company: validatedData.company?.trim() || null,
-        experience_level: validatedData.experienceLevel || null,
-        interests: validatedData.interests || [],
-      },
+      duplicate: insertResult.duplicate || false,
+      mock: insertResult.mock || false,
     });
   } catch (error) {
     console.error("Waitlist signup error:", error);

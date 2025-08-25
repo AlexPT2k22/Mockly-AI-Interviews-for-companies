@@ -8,7 +8,6 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { track } from "../lib/analytics";
-import { supabase } from "../lib/supabase";
 
 interface WaitlistModalProps {
   onClose: () => void;
@@ -99,27 +98,14 @@ const WaitlistModal: React.FC<WaitlistModalProps> = ({ onClose }) => {
         throw new Error(result.message || "Failed to join waitlist");
       }
 
-      // Insert to Supabase after successful backend processing
-      const { error: insertError } = await supabase
-        .from("waitlist")
-        .insert(result.userData);
-
-      if (insertError) {
-        // Postgres unique violation
-        if ((insertError as any).code === "23505") {
-          setSuccess(true);
-          track("waitlist_submit_duplicate");
-        } else {
-          throw insertError;
-        }
-      } else {
-        setSuccess(true);
-        track("waitlist_submit_success", {
-          interests: formData.interests.length,
-          experience: formData.experience,
-          discountCode: result.discountCode,
-        });
-      }
+      // Backend now handles both email sending and Supabase insertion
+      setSuccess(true);
+      track("waitlist_submit_success", {
+        interests: formData.interests.length,
+        experience: formData.experience,
+        discountCode: result.discountCode,
+        duplicate: result.duplicate || false,
+      });
     } catch (err) {
       console.error("Waitlist submission error:", err);
       setError(

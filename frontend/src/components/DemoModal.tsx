@@ -47,7 +47,6 @@ const DemoModal: React.FC<DemoModalProps> = ({ onClose }) => {
   const [step, setStep] = useState<Step>("category");
   const [category, setCategory] = useState<string | null>(null);
   const [question, setQuestion] = useState<string>("");
-  const [language, setLanguage] = useState<"en" | "pt">("en");
   const [questionLoading, setQuestionLoading] = useState<boolean>(false);
   const [mode, setMode] = useState<"voice" | "text" | null>(null);
   const [answer, setAnswer] = useState<string>("");
@@ -140,7 +139,7 @@ const DemoModal: React.FC<DemoModalProps> = ({ onClose }) => {
       const response = await fetch("http://localhost:8787/api/ai/question", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ category: c.key, language }),
+        body: JSON.stringify({ category: c.key }),
       });
 
       if (response.ok) {
@@ -360,29 +359,6 @@ const DemoModal: React.FC<DemoModalProps> = ({ onClose }) => {
         <p className="text-gray-600 mt-2">
           Select a category to see how Mockly generates targeted questions.
         </p>
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <label className="text-sm font-medium text-gray-700">Language:</label>
-          <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg p-1">
-            {[
-              { code: "en", label: "English" },
-              { code: "pt", label: "Português" },
-            ].map((l) => (
-              <button
-                key={l.code}
-                type="button"
-                onClick={() => setLanguage(l.code as "en" | "pt")}
-                className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
-                  language === l.code
-                    ? "bg-gray-900 text-white"
-                    : "text-gray-700 hover:bg-gray-200"
-                }`}
-                aria-pressed={language === l.code}
-              >
-                {l.label}
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
       <div className="grid sm:grid-cols-2 gap-4">
         {CATEGORIES.map((c) => (

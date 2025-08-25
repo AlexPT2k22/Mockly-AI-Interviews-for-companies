@@ -76,18 +76,33 @@ const WaitlistModal: React.FC<WaitlistModalProps> = ({ onClose }) => {
     try {
       const payload = {
         email: formData.email.trim().toLowerCase(),
-        first_name: formData.firstName.trim(),
-        last_name: formData.lastName.trim(),
-        role: formData.role.trim() || null,
-        company: formData.company.trim() || null,
-        experience_level: formData.experience || null,
+        firstName: formData.firstName.trim(),
+        lastName: formData.lastName.trim(),
+        role: formData.role.trim() || undefined,
+        company: formData.company.trim() || undefined,
+        experienceLevel: formData.experience || undefined,
         interests: formData.interests,
       };
 
-      // Insert; if unique violation on email, handle gracefully
+      // Submit to backend which handles email sending
+      const response = await fetch("/api/waitlist", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || "Failed to join waitlist");
+      }
+
+      // Insert to Supabase after successful backend processing
       const { error: insertError } = await supabase
         .from("waitlist")
-        .insert(payload);
+        .insert(result.userData);
 
       if (insertError) {
         // Postgres unique violation
@@ -102,10 +117,16 @@ const WaitlistModal: React.FC<WaitlistModalProps> = ({ onClose }) => {
         track("waitlist_submit_success", {
           interests: formData.interests.length,
           experience: formData.experience,
+          discountCode: result.discountCode,
         });
       }
     } catch (err) {
-      setError("Something went wrong. Please try again.");
+      console.error("Waitlist submission error:", err);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Something went wrong. Please try again."
+      );
       track("waitlist_submit_error");
     } finally {
       setLoading(false);
@@ -123,17 +144,19 @@ const WaitlistModal: React.FC<WaitlistModalProps> = ({ onClose }) => {
             You're on the list!
           </h3>
           <p className="text-gray-600 mb-6">
-            Thanks for joining our waitlist. We'll notify you as soon as Mockly
-            is ready for early access.
+            Thanks for joining our waitlist! We've sent you a welcome email with
+            a special 20% discount code for when we launch.
           </p>
           <div className="bg-gray-50 rounded-xl p-4 mb-6">
             <p className="text-sm text-gray-700">
               <strong>What's next?</strong>
               <br />
+              • Check your email for your 20% discount code
+              <br />
               • Get exclusive updates on our progress
               <br />
               • Early access to beta features
-              <br />• Special launch pricing
+              <br />• Special launch pricing with your discount
             </p>
           </div>
           <button

@@ -27,21 +27,21 @@ const Header: React.FC<HeaderProps> = ({ onWaitlistClick, onDemoClick }) => {
               Features
             </a>
             <a
-              href="#"
+              href="#roadmap"
+              className="text-gray-600 hover:text-gray-900 transition-colors duration-200 font-medium"
+            >
+              Roadmap
+            </a>
+            <a
+              href="#about"
               className="text-gray-600 hover:text-gray-900 transition-colors duration-200 font-medium"
             >
               About
             </a>
-            <a
-              href="#"
-              className="text-gray-600 hover:text-gray-900 transition-colors duration-200 font-medium"
-            >
-              Contact
-            </a>
             <div className="h-6 w-px bg-gray-200"></div>
 
             <button
-              onClick={(e) => {
+              onClick={() => {
                 track("cta_click", { location: "header", action: "open_demo" });
                 onDemoClick?.();
               }}
@@ -89,7 +89,13 @@ const Header: React.FC<HeaderProps> = ({ onWaitlistClick, onDemoClick }) => {
                 Features
               </a>
               <a
-                href="#"
+                href="#roadmap"
+                className="text-gray-600 hover:text-gray-900 transition-colors duration-200 font-medium px-2 py-1"
+              >
+                Roadmap
+              </a>
+              <a
+                href="#about"
                 className="text-gray-600 hover:text-gray-900 transition-colors duration-200 font-medium px-2 py-1"
               >
                 About

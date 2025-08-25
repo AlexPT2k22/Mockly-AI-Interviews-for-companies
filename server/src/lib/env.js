@@ -13,6 +13,8 @@ export const env = {
   AI_MODEL_TTS: req("AI_MODEL_TTS", "gpt-4o-mini-tts"),
   ALLOWED_ORIGIN: req("ALLOWED_ORIGIN", "http://localhost:5173"),
   MAX_AUDIO_BYTES: parseInt(req("MAX_AUDIO_BYTES", "5000000"), 10),
+  RESEND_API_KEY: req("RESEND_API_KEY"),
+  FROM_EMAIL: req("FROM_EMAIL", "noreply@mockly.com"),
 };
 
 export const isMockMode = !env.OPENAI_API_KEY;

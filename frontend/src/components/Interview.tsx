@@ -13,11 +13,13 @@ interface TranscriptEntry {
   confidence: number; // 0-10
   strengths: string[];
   improvements: string[];
+  relevanceScore?: number;
+  relevanceNote?: string;
 }
 
 interface TranscriptMarker {
   phrase: string;
-  offset: number;
+  offset?: number; // no longer required; kept for backward compatibility
   feedback: string;
   severity: "mild" | "moderate" | "severe";
   suggestion: string;
@@ -47,87 +49,94 @@ const Interview: React.FC = () => {
   const [recordingError, setRecordingError] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
+
+  // Additional core state (restored)
   const [lines, setLines] = useState<TranscriptLine[]>([]);
-  const [search, setSearch] = useState("");
-  const [lockScroll, setLockScroll] = useState(false);
+  const [search] = useState("");
+  const [lockScroll] = useState(false);
   const transcriptScrollRef = useRef<HTMLDivElement | null>(null);
   const startTimeRef = useRef<number>(Date.now());
-  
-  // Marker analysis state
   const [markers, setMarkers] = useState<TranscriptMarker[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
   const analyzeAbortRef = useRef<AbortController | null>(null);
-
   const [questions, setQuestions] = useState<string[]>([]);
+  const [hasStarted, setHasStarted] = useState(false);
   const question = questions[currentIndex] || "Generating question...";
+    // --- OpenAI TTS State ---
+    const [ttsEnabled, setTtsEnabled] = useState(true);
+    const [isSpeaking, setIsSpeaking] = useState(false);
+    const audioQueueRef = useRef<string[]>([]); // array de textos pendentes
+    const playingRef = useRef<HTMLAudioElement | null>(null);
+    const ttsAbortRef = useRef<AbortController | null>(null);
 
-  // ---- Immediate per-answer analysis helper ----
-  async function runAnalysisForAnswer(answer: string, qIdx: number) {
-    if (showRecap) return;
-    if (!lines.length) {
-      setMarkers([]);
-      return;
-    }
-    
-    // Get the full transcript text from all lines
-    const fullTranscript = lines
-      .filter(line => line.speaker === "Alexandre")
-      .map(line => line.text)
-      .join(" ");
-    
-    if (!fullTranscript.trim()) {
-      setMarkers([]);
-      return;
-    }
-
-    const handle = setTimeout(async () => {
+    async function fetchTTS(text: string): Promise<Blob | null> {
       try {
-        analyzeAbortRef.current?.abort();
         const ctrl = new AbortController();
-        analyzeAbortRef.current = ctrl;
-        setAnalyzing(true);
-        
-        const analysisPrompt = `You are an advanced interview coach AI. Analyze the transcript in real-time and identify areas for improvement, focusing on:
-- Fillers and verbal crutches (e.g., 'uh', 'um', 'like', 'so').
-- Unnecessary repetitions.
-- Vague language (e.g., 'things', 'maybe', 'more or less').
-
-Rules:
-- Feedback must be constructive and positive.
-- For each occurrence, provide JSON output with:
-  - phrase: the detected word or expression.
-  - offset: start position in the transcript (0-indexed).
-  - feedback: a short, actionable improvement suggestion.
-  - severity: 'mild' (yellow), 'moderate' (orange), 'severe' (red).
-  - suggestion: an alternative word, phrase, or sentence rephrasing to improve clarity and confidence.
-
-The output must always be valid JSON only, with no extra commentary.
-
-Now analyze the following transcript in real-time:
-${fullTranscript}`;
-
-        const res = await fetch(`${API_BASE}/api/ai/analyze-transcript`, {
+        ttsAbortRef.current = ctrl;
+        const res = await fetch(`${API_BASE}/api/ai/tts`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: analysisPrompt }),
+          body: JSON.stringify({ text }),
           signal: ctrl.signal,
         });
-        
-        if (!res.ok) throw new Error("bad status");
-        const json = await res.json();
-        if (json && Array.isArray(json.markers)) {
-          setMarkers(json.markers);
-        }
-      } catch (e) {
-        if ((e as any).name === "AbortError") return;
-        // ignore other errors
-      } finally {
-        setAnalyzing(false);
+        if (!res.ok) return null;
+        return await res.blob();
+      } catch (_) {
+        return null;
       }
-    }, 1000); // 1 second debounce
-    
-    return () => clearTimeout(handle);
-  }, [lines, showRecap]);
+    }
+
+  function enqueueSpeak(text: string) {
+      if (!ttsEnabled || !text) return;
+      audioQueueRef.current.push(text);
+      if (!isSpeaking) {
+        processQueue();
+      }
+    }
+
+    async function processQueue() {
+      if (isSpeaking) return;
+      const next = audioQueueRef.current.shift();
+      if (!next) return;
+      setIsSpeaking(true);
+      const blob = await fetchTTS(next);
+      if (!blob) {
+        setIsSpeaking(false);
+        return processQueue();
+      }
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      playingRef.current = audio;
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        setIsSpeaking(false);
+        processQueue();
+      };
+      audio.onerror = () => {
+        URL.revokeObjectURL(url);
+        setIsSpeaking(false);
+        processQueue();
+      };
+      audio.play().catch(() => {
+        URL.revokeObjectURL(url);
+        setIsSpeaking(false);
+        processQueue();
+      });
+    }
+
+    function cancelTTS() {
+      audioQueueRef.current = [];
+      try { ttsAbortRef.current?.abort(); } catch {}
+      if (playingRef.current) {
+        playingRef.current.pause();
+        playingRef.current.src = "";
+      }
+      setIsSpeaking(false);
+    }
+
+  // removed old speechSynthesis-based speak()
+
+  // Remove continuous debounce analysis; we'll analyze per answer.
 
   // ---- Persistence (load) ----
   useEffect(() => {
@@ -154,6 +163,7 @@ ${fullTranscript}`;
       questions,
       transcript,
       lines,
+      markers,
       currentIndex,
       showRecap,
     };
@@ -162,11 +172,12 @@ ${fullTranscript}`;
     } catch (_) {
       // ignore
     }
-  }, [questions, transcript, lines, currentIndex, showRecap]);
+  }, [questions, transcript, lines, markers, currentIndex, showRecap]);
 
   // ---- AI Question Fetching ----
   const fetchingRef = useRef(false);
   useEffect(() => {
+    if (!hasStarted) return; // only fetch after Start
     if (showRecap) return;
     if (currentIndex >= DEMO_MAX) return;
     if (questions[currentIndex]) return; // already have
@@ -191,6 +202,7 @@ ${fullTranscript}`;
             clone[currentIndex] = q;
             return clone;
           });
+          setTimeout(() => enqueueSpeak(q), 150);
         }
       } catch (_) {
         if (!cancelled) {
@@ -205,6 +217,7 @@ ${fullTranscript}`;
             clone[currentIndex] = fallback;
             return clone;
           });
+          setTimeout(() => enqueueSpeak(fallback), 150);
         }
       } finally {
         fetchingRef.current = false;
@@ -213,7 +226,7 @@ ${fullTranscript}`;
     return () => {
       cancelled = true;
     };
-  }, [currentIndex, questions, showRecap]);
+  }, [hasStarted, currentIndex, questions, showRecap]);
 
   async function startRecording() {
     setRecordingError(null);
@@ -270,24 +283,122 @@ ${fullTranscript}`;
 
   function commitAnswer(answer: string) {
     if (!answer) return;
-    const confidence = +(6 + Math.random() * 4).toFixed(1);
-    const entry: TranscriptEntry = {
+    const baseEntry: TranscriptEntry = {
       q: question,
       a: answer,
       confidence,
       strengths: ["Good structure (STAR)"],
       improvements: ["Add metrics/quantification"],
     };
-    setTranscript((t) => [...t, entry]);
-    const id = feedbackCounter + 1;
-    setFeedbackCounter(id);
-    setShowFeedback({ entry, id });
-    setTimeout(() => {
-      setShowFeedback((f) => (f && f.id === id ? null : f));
-    }, 6000);
+    setTranscript((t) => [...t, baseEntry]);
+    const entryIndex = transcript.length; // index after append
+
+    // Quick feedback fetch
+    try {
+      const resp = await fetch(`${API_BASE}/api/ai/quick-feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ answer }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        setTranscript((t) => {
+          const copy = [...t];
+          if (copy[entryIndex]) {
+            copy[entryIndex] = {
+              ...copy[entryIndex],
+              confidence: data.confidence ?? 0,
+              strengths: data.strengths?.length
+                ? data.strengths
+                : ["Good structure"],
+              improvements: data.improvements?.length
+                ? data.improvements
+                : ["Add impact"],
+            };
+          }
+          return copy;
+        });
+        const id = feedbackCounter + 1;
+        setFeedbackCounter(id);
+        setShowFeedback({
+          entry: {
+            ...baseEntry,
+            confidence: data.confidence ?? 0,
+            strengths: data.strengths?.length
+              ? data.strengths
+              : ["Good structure"],
+            improvements: data.improvements?.length
+              ? data.improvements
+              : ["Add impact"],
+          },
+          id,
+        });
+        // speak concise feedback
+        const strengthsLine = data.strengths?.[0]
+          ? `Strength: ${data.strengths[0]}.`
+          : "";
+        const improveLine = data.improvements?.[0]
+          ? `Improve: ${data.improvements[0]}.`
+          : "";
+  enqueueSpeak(
+          `Feedback. Confidence ${Math.round(
+            (data.confidence ?? 0) * 10
+          ) / 10} out of ten. ${strengthsLine} ${improveLine}`,
+  );
+        setTimeout(() => {
+          setShowFeedback((f) => (f && f.id === id ? null : f));
+        }, 6000);
+      }
+    } catch (_) {
+      // silent
+    }
+
+    // Immediate speech pattern analysis for this single answer
+    try {
+      analyzeAbortRef.current?.abort();
+      const ctrl = new AbortController();
+      analyzeAbortRef.current = ctrl;
+      setAnalyzing(true);
+      const res = await fetch(`${API_BASE}/api/ai/analyze-transcript`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transcript: answer }),
+        signal: ctrl.signal,
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json && Array.isArray(json.markers)) {
+          const enriched = json.markers
+            .map((m: any) => ({
+              phrase: (m.phrase || m.word || "").trim(),
+              feedback: m.feedback || m.note || "",
+              severity: (m.severity as any) || "mild",
+              suggestion: m.suggestion || m.rewrite || "",
+            }))
+            .filter((m: any) => m.phrase.length > 0);
+          setMarkers((prev) => {
+            const dedup = new Map<string, TranscriptMarker>();
+            [...prev, ...enriched].forEach((m) => {
+              const key = m.phrase.toLowerCase() + "|" + m.severity;
+              if (!dedup.has(key)) dedup.set(key, m);
+            });
+            return Array.from(dedup.values());
+          });
+        }
+      }
+    } catch (e) {
+      if ((e as any).name !== "AbortError") {
+        // ignore others
+      }
+    } finally {
+      setAnalyzing(false);
+    }
+
     const nextIndex = currentIndex + 1;
     if (nextIndex >= DEMO_MAX) {
       setTimeout(() => setShowRecap(true), 400);
+      // final spoken CTA
+  setTimeout(() => enqueueSpeak("Demo complete. Please rate your experience and join the waitlist to get early access."), 800);
     } else {
       setCurrentIndex(nextIndex);
     }
@@ -318,6 +429,7 @@ ${fullTranscript}`;
   }
 
   function toggleRecord() {
+    if (!hasStarted) return;
     if (showRecap || currentIndex >= DEMO_MAX || !questions[currentIndex]) return;
     if (isRecording) {
       stopRecording();
@@ -335,6 +447,8 @@ ${fullTranscript}`;
     setLines([]);
     setQuestions([]);
     setMarkers([]);
+  setHasStarted(false);
+  cancelTTS();
     track("interview_reset", {});
   }
 
@@ -369,30 +483,55 @@ ${fullTranscript}`;
   }
 
   function renderHighlighted(text: string) {
-    if (!markers.length) return <span>{text}</span>;
-    const ordered = [...markers].sort((a, b) => a.offset - b.offset);
+    if (!markers.length || !text) return <span>{text}</span>;
+    const lower = text.toLowerCase();
+    // collect matches by searching phrase occurrences
+    const rawMatches: {
+      start: number;
+      end: number;
+      marker: TranscriptMarker;
+    }[] = [];
+    markers.forEach((m) => {
+      const phrase = m.phrase.trim();
+      if (!phrase) return;
+      const pLower = phrase.toLowerCase();
+      let from = 0;
+      while (from < lower.length) {
+        const idx = lower.indexOf(pLower, from);
+        if (idx === -1) break;
+        rawMatches.push({ start: idx, end: idx + pLower.length, marker: m });
+        from = idx + pLower.length; // non-overlapping per marker
+      }
+    });
+    if (!rawMatches.length) return <span>{text}</span>;
+    rawMatches.sort((a, b) => a.start - b.start || a.end - b.end);
+    // remove overlaps: keep earliest finishing
+    const matches: typeof rawMatches = [];
+    let lastEnd = -1;
+    for (const m of rawMatches) {
+      if (m.start < lastEnd) continue;
+      matches.push(m);
+      lastEnd = m.end;
+    }
     const nodes: React.ReactNode[] = [];
     let cursor = 0;
-    ordered.forEach((m, idx) => {
-      const start = m.offset;
-      const end = m.offset + m.phrase.length;
-      if (start > cursor) {
+    matches.forEach((m, i) => {
+      if (m.start > cursor)
         nodes.push(
-          <span key={`plain-${idx}-${cursor}`}>
-            {text.slice(cursor, start)}
-          </span>
+          <span key={`t-${cursor}`}>{text.slice(cursor, m.start)}</span>
         );
-      }
-      const phraseActual = text.slice(start, end);
+      const frag = text.slice(m.start, m.end);
       nodes.push(
         <span
-          key={`marker-${idx}-${start}`}
+          key={`m-${m.start}-${i}`}
           className={`relative inline-block px-0.5 rounded border underline decoration-dotted cursor-help transition-colors ${severityClasses(
             m.severity
           )}`}
-          title={`${m.feedback} → Suggestion: ${m.suggestion}`}
+          title={`${m.marker.feedback}${
+            m.marker.suggestion ? " → " + m.marker.suggestion : ""
+          }`}
         >
-          <span>{phraseActual}</span>
+          {frag}
         </span>
       );
       cursor = end;
@@ -502,18 +641,47 @@ ${fullTranscript}`;
                 Question {currentIndex + 1} / {DEMO_MAX}{" "}
                 <span className="text-gray-400">(Demo)</span>
               </p>
-              <h2 className="text-2xl font-semibold leading-snug mb-4">
-                {question}
-              </h2>
+              {hasStarted ? (
+                <h2 className="text-2xl font-semibold leading-snug mb-4">
+                  {question}
+                </h2>
+              ) : (
+                <div className="mb-6">
+                  <h2 className="text-2xl font-semibold leading-snug mb-2">
+                    Ready to practice?
+                  </h2>
+                  <p className="text-sm text-gray-500">
+                    Click Start to generate your first AI interview question.
+                  </p>
+                </div>
+              )}
               <p className="text-sm text-gray-500 mb-6">
                 Answer by speaking. Questions are AI-generated. Demo version
                 limited to {DEMO_MAX} questions.
               </p>
 
               <div className="mt-5 flex flex-wrap items-center gap-4">
+                {!hasStarted && (
+                  <button
+                    onClick={() => setHasStarted(true)}
+                    className="inline-flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-medium shadow-sm transition border bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-500"
+                  >
+                    Start
+                  </button>
+                )}
+                
+                {hasStarted && questions[currentIndex] && (
+                  <button
+                    type="button"
+                    onClick={() => enqueueSpeak(questions[currentIndex])}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium border border-gray-200 bg-white hover:bg-gray-50"
+                  >
+                    Replay Question
+                  </button>
+                )}
                 <button
                   disabled={
-                    isTranscribing || showRecap || currentIndex >= DEMO_MAX
+                    !hasStarted || isTranscribing || showRecap || currentIndex >= DEMO_MAX
                   }
                   onClick={toggleRecord}
                   className={`inline-flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-medium shadow-sm transition border disabled:opacity-50 ${
@@ -563,21 +731,6 @@ ${fullTranscript}`;
             <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
               <h3 className="font-semibold mb-4">Transcript</h3>
               <div className="mb-3 flex flex-wrap gap-3 items-center text-xs">
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search..."
-                  className="px-2 py-1.5 rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-gray-900/20"
-                />
-                <label className="flex items-center gap-1 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={lockScroll}
-                    onChange={(e) => setLockScroll(e.target.checked)}
-                    className="rounded"
-                  />
-                  <span>Lock scroll</span>
-                </label>
                 <span className="text-gray-400">Lines: {lines.length}</span>
                 {analyzing && (
                   <span className="text-[10px] text-blue-500 animate-pulse">
@@ -603,10 +756,11 @@ ${fullTranscript}`;
                     ));
                     
                     // Apply marker highlighting if this is user speech
-                    const displayText = line.speaker === "Alexandre" 
-                      ? renderHighlighted(line.text)
-                      : highlightFillers(line.text);
-                      
+                    const displayText =
+                      line.speaker === "User"
+                        ? renderHighlighted(line.text)
+                        : highlightFillers(line.text);
+
                     return (
                       <div
                         key={line.id}
@@ -701,6 +855,9 @@ ${fullTranscript}`;
               <p className="text-sm text-gray-600 mb-4">
                 Positive summary to guide your next practice session.
               </p>
+              <div className="mb-6 p-4 bg-indigo-50 rounded-xl border border-indigo-100 text-xs text-indigo-800">
+                Demo finished. Rate your experience below and join the waitlist for full access, unlimited questions, advanced coaching and personalized roadmaps.
+              </div>
               <div className="flex flex-wrap items-center gap-4 mb-6">
                 {avgConfidence && (
                   <div
@@ -715,6 +872,7 @@ ${fullTranscript}`;
                   {transcript.length} answers analyzed
                 </div>
               </div>
+              <RatingCTA onSpeak={ttsEnabled ? enqueueSpeak : undefined} />
               <div className="space-y-4 mb-6">
                 {transcript.map((t, i) => (
                   <div key={i} className="flex items-center gap-3">
@@ -743,14 +901,6 @@ ${fullTranscript}`;
                   className="px-4 py-2.5 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-800 transition"
                 >
                   Practice again
-                </button>
-                <button
-                  onClick={() =>
-                    window.scrollTo({ top: 0, behavior: "smooth" })
-                  }
-                  className="px-4 py-2.5 rounded-lg text-sm font-medium bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 transition"
-                >
-                  See ideal example
                 </button>
               </div>
             </div>
@@ -795,26 +945,6 @@ ${fullTranscript}`;
                 {showFeedback.entry.improvements[0]}
               </li>
             </ul>
-            <div className="flex gap-3 pt-1">
-              <button
-                onClick={() => {
-                  setShowFeedback(null);
-                  window.scrollTo({ top: 0, behavior: "smooth" });
-                }}
-                className="text-xs font-medium px-3 py-1.5 rounded-lg bg-gray-900 text-white hover:bg-gray-800"
-              >
-                See ideal example
-              </button>
-              <button
-                onClick={() => {
-                  setShowFeedback(null);
-                  reset();
-                }}
-                className="text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-              >
-                Practice again
-              </button>
-            </div>
             <div className="absolute inset-0 pointer-events-none opacity-10 bg-[radial-gradient(circle_at_top_left,#000,transparent_70%)]" />
           </div>
         </div>
@@ -824,3 +954,53 @@ ${fullTranscript}`;
 };
 
 export default Interview;
+
+// Inline rating component for recap CTA
+const starsBase = [1,2,3,4,5];
+interface RatingCTAProps { onSpeak?: (text: string) => void }
+const RatingCTA: React.FC<RatingCTAProps> = ({ onSpeak }) => {
+  const [rating, setRating] = useState<number | null>(null);
+  const [submitted, setSubmitted] = useState(false);
+  const [email, setEmail] = useState("");
+  function submit() {
+    setSubmitted(true);
+    if (onSpeak) onSpeak("Thank you. Join the waitlist to get early access.");
+  }
+  return (
+    <div className="mb-8">
+      <div className="flex items-center gap-3 mb-2">
+        <span className="text-sm font-medium text-gray-700">Rate this demo:</span>
+        <div className="flex">
+          {starsBase.map(s => (
+            <button
+              key={s}
+              onClick={() => setRating(s)}
+              className={`w-7 h-7 text-lg transition ${rating && s <= rating ? 'text-yellow-500' : 'text-gray-300 hover:text-gray-400'}`}
+              aria-label={`Rate ${s}`}
+            >★</button>
+          ))}
+        </div>
+        {rating && <span className="text-xs text-gray-500">{rating}/5</span>}
+      </div>
+      <div className="flex flex-wrap gap-2 items-center">
+        <input
+          type="email"
+          placeholder="Email for early access"
+          value={email}
+          onChange={e=> setEmail(e.target.value)}
+          className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-gray-900"
+        />
+        <button
+          disabled={!rating || !email || submitted}
+          onClick={submit}
+          className="px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-indigo-500"
+        >
+          {submitted ? 'Saved' : 'Submit & Join Waitlist'}
+        </button>
+      </div>
+      {submitted && (
+        <p className="text-xs text-indigo-600 mt-2">We will notify you—thanks for the feedback!</p>
+      )}
+    </div>
+  );
+};

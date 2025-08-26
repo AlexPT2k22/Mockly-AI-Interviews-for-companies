@@ -40,8 +40,10 @@ router.post('/tts', async (req, res, next) => {
   try {
     const schema = z.object({ text: z.string().min(1).max(500) });
     const { text } = schema.parse(req.body);
-    const result = await synthesizeSpeech(text);
-    res.json(result);
+    const { buffer, mime } = await synthesizeSpeech(text);
+    res.setHeader('Content-Type', mime || 'audio/mpeg');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(buffer);
   } catch (e) { next(e); }
 });
 

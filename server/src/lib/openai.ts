@@ -82,10 +82,36 @@ export async function synthesizeSpeech(text: string) {
   if (isMockMode) {
     // Return a short silent wav header (minimal) base64
     const silentWav = Buffer.from('UklGRiQAAABXQVZFZm10IBAAAAABAAEAIlYAABAAAAACAAAASGFuZ2ZpcmU=','base64');
-    return { audioBase64: silentWav.toString('base64'), mime: 'audio/wav' };
+    return { buffer: silentWav, mime: 'audio/wav' };
   }
-  // Placeholder TTS (OpenAI TTS model invocation pseudocode)
-  return { audioBase64: '', mime: 'audio/mpeg', note: 'TTS not fully implemented yet.' };
+  try {
+    // Using new audio speech API (adjust model/voice as available in your account)
+    const resp: any = await (openai as any).audio.speech.create({
+      model: 'gpt-4o-mini-tts',
+      voice: 'alloy',
+      input: text.slice(0, 800),
+      format: 'mp3'
+    });
+    // SDK may return ArrayBuffer directly
+    if (resp instanceof ArrayBuffer) {
+      return { buffer: Buffer.from(resp), mime: 'audio/mpeg' };
+    }
+    // Some SDK versions expose .arrayBuffer()
+    if (typeof resp?.arrayBuffer === 'function') {
+      const ab = await resp.arrayBuffer();
+      return { buffer: Buffer.from(ab), mime: 'audio/mpeg' };
+    }
+    // Fallback: base64 field
+    if (resp?.data) {
+      const b64 = resp.data as string;
+      return { buffer: Buffer.from(b64, 'base64'), mime: 'audio/mpeg' };
+    }
+  } catch (e) {
+    console.error('TTS generation error', e);
+  }
+  // Fallback silent audio if failure
+  const fallback = Buffer.from('UklGRiQAAABXQVZFZm10IBAAAAABAAEAIlYAABAAAAACAAAASGFuZ2ZpcmU=','base64');
+  return { buffer: fallback, mime: 'audio/wav' };
 }
 
 export interface TranscriptMarker {

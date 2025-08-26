@@ -321,7 +321,7 @@ const Hero: React.FC<HeroProps> = ({ onJoinWaitlist, onTryDemo }) => {
               <div className="relative rounded-2xl overflow-hidden border border-gray-200 bg-white shadow-sm">
                 <div className="absolute inset-0 bg-gradient-to-b from-white/0 to-white/60 pointer-events-none" />
                 <img
-                  src="/preview.png"
+                  src="./public/preview.png"
                   alt="Mockly AI mock interview interface preview"
                   className="w-full h-auto object-cover"
                   loading="lazy"

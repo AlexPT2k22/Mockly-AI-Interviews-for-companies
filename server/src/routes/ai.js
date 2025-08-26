@@ -6,6 +6,7 @@ import {
   analyzeAnswer,
   transcribeAudio,
   synthesizeSpeech,
+  analyzeTranscriptChunk
 } from "../lib/openai.js";
 import { env } from "../lib/env.js";
 
@@ -31,6 +32,17 @@ router.post("/analyze", async (req, res, next) => {
     const schema = z.object({ answer: z.string().min(10).max(4000) });
     const { answer } = schema.parse(req.body);
     const result = await analyzeAnswer(answer);
+    res.json(result);
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post("/analyze-transcript", async (req, res, next) => {
+  try {
+    const schema = z.object({ transcript: z.string().min(1).max(8000) });
+    const { transcript } = schema.parse(req.body);
+    const result = await analyzeTranscriptChunk(transcript);
     res.json(result);
   } catch (e) {
     next(e);

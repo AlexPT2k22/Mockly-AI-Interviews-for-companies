@@ -11,6 +11,7 @@ import DemoModal from "./components/DemoModal";
 import Terms from "./components/legal/Terms";
 import Privacy from "./components/legal/Privacy";
 import Cookies from "./components/legal/Cookies";
+import Interview from "./components/Interview";
 import "./animations.css";
 
 function App() {
@@ -48,6 +49,7 @@ function App() {
       <Route path="/terms" element={<Terms />} />
       <Route path="/privacy" element={<Privacy />} />
       <Route path="/cookies" element={<Cookies />} />
+      <Route path="/interview" element={<Interview />} />
       {/* Fallback */}
       <Route path="*" element={<div className="p-6">Not Found</div>} />
     </Routes>

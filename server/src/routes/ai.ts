@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
-import { generateQuestion, analyzeAnswer, transcribeAudio, synthesizeSpeech } from '../lib/openai.js';
+import { generateQuestion, analyzeAnswer, transcribeAudio, synthesizeSpeech, analyzeTranscriptChunk } from '../lib/openai.js';
 import { env } from '../lib/env.js';
 
 const upload = multer({ limits: { fileSize: env.MAX_AUDIO_BYTES } });
@@ -41,6 +41,15 @@ router.post('/tts', async (req, res, next) => {
     const schema = z.object({ text: z.string().min(1).max(500) });
     const { text } = schema.parse(req.body);
     const result = await synthesizeSpeech(text);
+    res.json(result);
+  } catch (e) { next(e); }
+});
+
+router.post('/analyze-transcript', async (req, res, next) => {
+  try {
+    const schema = z.object({ transcript: z.string().min(1).max(8000) });
+    const { transcript } = schema.parse(req.body);
+    const result = await analyzeTranscriptChunk(transcript);
     res.json(result);
   } catch (e) { next(e); }
 });

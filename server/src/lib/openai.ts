@@ -60,9 +60,22 @@ export async function transcribeAudio(buffer: Buffer, mimetype: string) {
   if (isMockMode) {
     return { text: 'Mock transcription of provided audio sample.' };
   }
-  // Real implementation would use: openai.audio.transcriptions.create
-  // Placeholder until official method updated in SDK version.
-  return { text: 'Transcription (not implemented).' };
+  try {
+    // Use FormData style upload via SDK fallback
+    const blob = new Blob([new Uint8Array(buffer)], { type: mimetype || 'audio/webm' });
+    const file: any = new File([blob], 'audio.webm', { type: blob.type });
+    const resp: any = await (openai as any).audio.transcriptions.create({
+      file,
+      model: 'whisper-1',
+      temperature: 0,
+      response_format: 'json'
+    });
+    const text = resp.text || resp.data?.text || '';
+    return { text: text.trim() };
+  } catch (e: any) {
+    console.error('Transcription error', e?.response?.data || e?.message || e);
+    return { text: '' };
+  }
 }
 
 export async function synthesizeSpeech(text: string) {
@@ -73,4 +86,70 @@ export async function synthesizeSpeech(text: string) {
   }
   // Placeholder TTS (OpenAI TTS model invocation pseudocode)
   return { audioBase64: '', mime: 'audio/mpeg', note: 'TTS not fully implemented yet.' };
+}
+
+export interface TranscriptMarker {
+  phrase: string;
+  offset: number; // 0-based
+  feedback: string;
+  severity: 'mild' | 'moderate' | 'severe';
+  suggestion?: string;
+}
+
+export async function analyzeTranscriptChunk(transcript: string): Promise<{ markers: TranscriptMarker[] }> {
+  if (isMockMode) {
+    const markers: TranscriptMarker[] = [];
+    const idx = transcript.toLowerCase().indexOf('challenge');
+    if (idx >= 0) {
+      markers.push({
+        phrase: transcript.slice(idx, idx + 9),
+        offset: idx,
+        feedback: 'Boa referência a um desafio – adiciona impacto quantificado.',
+        severity: 'mild'
+      });
+    }
+    if (transcript.length > 160) {
+      markers.push({
+        phrase: transcript.slice(0, 15),
+        offset: 0,
+        feedback: 'Introdução longa – poderias resumir o contexto.',
+        severity: 'moderate'
+      });
+    }
+    return { markers };
+  }
+
+  const prompt = `You are an advanced interview coach AI. Analyze the transcript in real-time and identify areas for improvement, focusing on:\n- Fillers and verbal crutches (e.g., 'uh', 'um', 'like', 'so').\n- Unnecessary repetitions.\n- Vague language (e.g., 'things', 'maybe', 'more or less').\nRules:\n- Feedback must be constructive and positive.\n- Return ONLY valid JSON: {\"markers\":[{phrase,offset,feedback,severity,suggestion}]}.\n- severity in (mild,moderate,severe).\nTranscript:\n<<<${transcript.replace(/`/g,'`')}>>>`;
+
+  try {
+    const resp = await openai!.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: 'Return ONLY strict JSON with markers.' },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.15,
+      max_tokens: 380
+    });
+    const raw = resp.choices[0].message?.content || '{}';
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      const parsed = JSON.parse(match[0]);
+      if (Array.isArray(parsed.markers)) {
+        const cleaned: TranscriptMarker[] = parsed.markers.filter((m: any) =>
+          m && typeof m.phrase === 'string' && typeof m.offset === 'number' && typeof m.feedback === 'string' && ['mild','moderate','severe'].includes(m.severity)
+        ).slice(0,6).map((m: any) => ({
+          phrase: m.phrase.slice(0,30),
+          offset: Math.max(0, m.offset),
+          feedback: m.feedback.slice(0,120),
+            severity: m.severity,
+            suggestion: typeof m.suggestion === 'string' ? m.suggestion.slice(0,120) : undefined
+        }));
+        return { markers: cleaned };
+      }
+    }
+  } catch (e) {
+    console.error('analyzeTranscriptChunk TS error', e);
+  }
+  return { markers: [] };
 }

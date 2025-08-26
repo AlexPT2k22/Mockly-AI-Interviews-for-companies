@@ -185,3 +185,77 @@ export async function synthesizeSpeech(text) {
     note: "TTS not fully implemented yet.",
   };
 }
+
+export async function analyzeTranscriptChunk(transcript) {
+  if (isMockMode) {
+    // Simple mock: mark first occurrence of 'challenge' or length-based marker
+    const markers = [];
+    const idx = transcript.toLowerCase().indexOf("challenge");
+    if (idx >= 0) {
+      markers.push({
+        phrase: transcript.slice(idx, idx + 9),
+        offset: idx,
+        feedback:
+          "Bom uso de palavra-chave técnica, podes quantificar impacto.",
+        severity: "mild",
+      });
+    }
+    if (transcript.length > 120) {
+      markers.push({
+        phrase: transcript.slice(0, 12),
+        offset: 0,
+        feedback:
+          "Introdução longa – considera chegar ao ponto principal mais cedo.",
+        severity: "moderate",
+      });
+    }
+    return { markers };
+  }
+
+  const prompt = `You receive a partial or full interview answer transcript and must return JSON with an array named markers. Each marker flags an opportunity for constructive, positive micro-feedback. Avoid punitive tone.
+
+Transcript:\n"""${transcript.replace(/`/g, "`")}"""
+
+Rules:
+- Up to 6 markers.
+- Each marker: phrase (exact substring), offset (0-based index), feedback (<=90 chars, positive coaching), severity in [mild, moderate, severe]. Use severe only for critical clarity issues.
+- Focus on structure, clarity, missing metrics, overuse of filler, vague impact.
+Return ONLY valid JSON like: {"markers":[{"phrase":"...","offset":10,"feedback":"...","severity":"mild"}]}`;
+
+  try {
+    const resp = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a concise constructive interview answer coach returning ONLY JSON.",
+        },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.2,
+      max_tokens: 400,
+    });
+    const raw = resp.choices[0].message?.content || "{}";
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      const parsed = JSON.parse(match[0]);
+      if (Array.isArray(parsed.markers)) {
+        // Basic validation
+        const cleaned = parsed.markers
+          .filter(
+            (m) =>
+              typeof m.phrase === "string" &&
+              typeof m.offset === "number" &&
+              typeof m.feedback === "string" &&
+              ["mild", "moderate", "severe"].includes(m.severity)
+          )
+          .slice(0, 6);
+        return { markers: cleaned };
+      }
+    }
+  } catch (e) {
+    console.error("analyzeTranscriptChunk error", e);
+  }
+  return { markers: [] };
+}

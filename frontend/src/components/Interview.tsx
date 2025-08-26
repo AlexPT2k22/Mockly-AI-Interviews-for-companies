@@ -87,29 +87,11 @@ const Interview: React.FC = () => {
         analyzeAbortRef.current = ctrl;
         setAnalyzing(true);
         
-        const analysisPrompt = `You are an advanced interview coach AI. Analyze the transcript in real-time and identify areas for improvement, focusing on:
-- Fillers and verbal crutches (e.g., 'uh', 'um', 'like', 'so').
-- Unnecessary repetitions.
-- Vague language (e.g., 'things', 'maybe', 'more or less').
-
-Rules:
-- Feedback must be constructive and positive.
-- For each occurrence, provide JSON output with:
-  - phrase: the detected word or expression.
-  - offset: start position in the transcript (0-indexed).
-  - feedback: a short, actionable improvement suggestion.
-  - severity: 'mild' (yellow), 'moderate' (orange), 'severe' (red).
-  - suggestion: an alternative word, phrase, or sentence rephrasing to improve clarity and confidence.
-
-The output must always be valid JSON only, with no extra commentary.
-
-Now analyze the following transcript in real-time:
-${fullTranscript}`;
-
+        // Send raw transcript only; server constructs coaching prompt
         const res = await fetch(`${API_BASE}/api/ai/analyze-transcript`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: analysisPrompt }),
+          body: JSON.stringify({ transcript: fullTranscript }),
           signal: ctrl.signal,
         });
         

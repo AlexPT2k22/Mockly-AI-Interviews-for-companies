@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { env, isMockMode } from './env.js';
+import crypto from 'crypto';
 
 export const openai = !isMockMode ? new OpenAI({ apiKey: env.OPENAI_API_KEY }) : null;
 
@@ -96,6 +97,42 @@ export interface TranscriptMarker {
   suggestion?: string;
 }
 
+// Simple in-memory LRU-ish cache for transcript analysis
+interface MarkerCacheEntry { markers: TranscriptMarker[]; ts: number; }
+const MARKER_CACHE = new Map<string, MarkerCacheEntry>();
+const MARKER_CACHE_MAX = 200; // max entries
+const MARKER_CACHE_TTL_MS = 1000 * 60 * 10; // 10 minutes
+
+function cacheKeyForTranscript(t: string): string {
+  return crypto.createHash('sha256').update(t).digest('hex');
+}
+
+function getCachedMarkers(t: string): TranscriptMarker[] | null {
+  const key = cacheKeyForTranscript(t);
+  const entry = MARKER_CACHE.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > MARKER_CACHE_TTL_MS) {
+    MARKER_CACHE.delete(key);
+    return null;
+  }
+  // refresh recency (move to end)
+  MARKER_CACHE.delete(key);
+  MARKER_CACHE.set(key, { ...entry, ts: Date.now() });
+  return entry.markers;
+}
+
+function setCachedMarkers(t: string, markers: TranscriptMarker[]) {
+  if (!markers.length) return; // don't cache empty results
+  const key = cacheKeyForTranscript(t);
+  MARKER_CACHE.set(key, { markers, ts: Date.now() });
+  // trim if exceeds size
+  if (MARKER_CACHE.size > MARKER_CACHE_MAX) {
+    // delete oldest (Map iteration order = insertion order)
+    const firstKey = MARKER_CACHE.keys().next().value;
+    if (firstKey) MARKER_CACHE.delete(firstKey);
+  }
+}
+
 export async function analyzeTranscriptChunk(transcript: string): Promise<{ markers: TranscriptMarker[] }> {
   if (isMockMode) {
     const markers: TranscriptMarker[] = [];
@@ -119,7 +156,13 @@ export async function analyzeTranscriptChunk(transcript: string): Promise<{ mark
     return { markers };
   }
 
-  const prompt = `You are an advanced interview coach AI. Analyze the transcript in real-time and identify areas for improvement, focusing on:\n- Fillers and verbal crutches (e.g., 'uh', 'um', 'like', 'so').\n- Unnecessary repetitions.\n- Vague language (e.g., 'things', 'maybe', 'more or less').\nRules:\n- Feedback must be constructive and positive.\n- Return ONLY valid JSON: {\"markers\":[{phrase,offset,feedback,severity,suggestion}]}.\n- severity in (mild,moderate,severe).\nTranscript:\n<<<${transcript.replace(/`/g,'`')}>>>`;
+  // Cache lookup
+  const cached = getCachedMarkers(transcript);
+  if (cached) {
+    return { markers: cached };
+  }
+
+  const prompt = `You are an advanced interview coach AI. Analyze the transcript in real-time and identify areas for improvement, focusing on:\n- Fillers and verbal crutches (e.g., 'uh', 'um', 'like', 'so').\n- Unnecessary repetitions.\n- Vague language (e.g., 'things', 'maybe', 'more or less').\nRules:\n- Feedback must be constructive and positive.\n- Return ONLY valid JSON: {"markers":[{phrase,offset,feedback,severity,suggestion}]}.\n- severity in (mild,moderate,severe).\nTranscript:\n<<<${transcript.replace(/`/g,'`')}>>>`;
 
   try {
     const resp = await openai!.chat.completions.create({
@@ -142,9 +185,10 @@ export async function analyzeTranscriptChunk(transcript: string): Promise<{ mark
           phrase: m.phrase.slice(0,30),
           offset: Math.max(0, m.offset),
           feedback: m.feedback.slice(0,120),
-            severity: m.severity,
-            suggestion: typeof m.suggestion === 'string' ? m.suggestion.slice(0,120) : undefined
+          severity: m.severity,
+          suggestion: typeof m.suggestion === 'string' ? m.suggestion.slice(0,120) : undefined
         }));
+        setCachedMarkers(transcript, cleaned);
         return { markers: cleaned };
       }
     }

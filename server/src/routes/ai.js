@@ -40,11 +40,17 @@ router.post("/analyze", async (req, res, next) => {
 
 router.post("/analyze-transcript", async (req, res, next) => {
   try {
+    // Accept either { transcript } or legacy { text }
+    const body = req.body || {};
+    const transcriptCandidate = typeof body.transcript === 'string' ? body.transcript : body.text;
     const schema = z.object({ transcript: z.string().min(1).max(8000) });
-    const { transcript } = schema.parse(req.body);
+    const { transcript } = schema.parse({ transcript: transcriptCandidate });
     const result = await analyzeTranscriptChunk(transcript);
     res.json(result);
   } catch (e) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('[analyze-transcript] invalid payload', { body: req.body, error: e?.message });
+    }
     next(e);
   }
 });

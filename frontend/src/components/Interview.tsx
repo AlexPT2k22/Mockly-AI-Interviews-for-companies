@@ -62,77 +62,79 @@ const Interview: React.FC = () => {
   const [questions, setQuestions] = useState<string[]>([]);
   const [hasStarted, setHasStarted] = useState(false);
   const question = questions[currentIndex] || "Generating question...";
-    // --- OpenAI TTS State ---
-    const [ttsEnabled, setTtsEnabled] = useState(true);
-    const [isSpeaking, setIsSpeaking] = useState(false);
-    const audioQueueRef = useRef<string[]>([]); // array de textos pendentes
-    const playingRef = useRef<HTMLAudioElement | null>(null);
-    const ttsAbortRef = useRef<AbortController | null>(null);
+  // --- OpenAI TTS State ---
+  const [ttsEnabled] = useState(true);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const audioQueueRef = useRef<string[]>([]); // array de textos pendentes
+  const playingRef = useRef<HTMLAudioElement | null>(null);
+  const ttsAbortRef = useRef<AbortController | null>(null);
 
-    async function fetchTTS(text: string): Promise<Blob | null> {
-      try {
-        const ctrl = new AbortController();
-        ttsAbortRef.current = ctrl;
-        const res = await fetch(`${API_BASE}/api/ai/tts`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text }),
-          signal: ctrl.signal,
-        });
-        if (!res.ok) return null;
-        return await res.blob();
-      } catch (_) {
-        return null;
-      }
+  async function fetchTTS(text: string): Promise<Blob | null> {
+    try {
+      const ctrl = new AbortController();
+      ttsAbortRef.current = ctrl;
+      const res = await fetch(`${API_BASE}/api/ai/tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+        signal: ctrl.signal,
+      });
+      if (!res.ok) return null;
+      return await res.blob();
+    } catch (_) {
+      return null;
     }
+  }
 
   function enqueueSpeak(text: string) {
-      if (!ttsEnabled || !text) return;
-      audioQueueRef.current.push(text);
-      if (!isSpeaking) {
-        processQueue();
-      }
+    if (!ttsEnabled || !text) return;
+    audioQueueRef.current.push(text);
+    if (!isSpeaking) {
+      processQueue();
     }
+  }
 
-    async function processQueue() {
-      if (isSpeaking) return;
-      const next = audioQueueRef.current.shift();
-      if (!next) return;
-      setIsSpeaking(true);
-      const blob = await fetchTTS(next);
-      if (!blob) {
-        setIsSpeaking(false);
-        return processQueue();
-      }
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      playingRef.current = audio;
-      audio.onended = () => {
-        URL.revokeObjectURL(url);
-        setIsSpeaking(false);
-        processQueue();
-      };
-      audio.onerror = () => {
-        URL.revokeObjectURL(url);
-        setIsSpeaking(false);
-        processQueue();
-      };
-      audio.play().catch(() => {
-        URL.revokeObjectURL(url);
-        setIsSpeaking(false);
-        processQueue();
-      });
-    }
-
-    function cancelTTS() {
-      audioQueueRef.current = [];
-      try { ttsAbortRef.current?.abort(); } catch {}
-      if (playingRef.current) {
-        playingRef.current.pause();
-        playingRef.current.src = "";
-      }
+  async function processQueue() {
+    if (isSpeaking) return;
+    const next = audioQueueRef.current.shift();
+    if (!next) return;
+    setIsSpeaking(true);
+    const blob = await fetchTTS(next);
+    if (!blob) {
       setIsSpeaking(false);
+      return processQueue();
     }
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    playingRef.current = audio;
+    audio.onended = () => {
+      URL.revokeObjectURL(url);
+      setIsSpeaking(false);
+      processQueue();
+    };
+    audio.onerror = () => {
+      URL.revokeObjectURL(url);
+      setIsSpeaking(false);
+      processQueue();
+    };
+    audio.play().catch(() => {
+      URL.revokeObjectURL(url);
+      setIsSpeaking(false);
+      processQueue();
+    });
+  }
+
+  function cancelTTS() {
+    audioQueueRef.current = [];
+    try {
+      ttsAbortRef.current?.abort();
+    } catch {}
+    if (playingRef.current) {
+      playingRef.current.pause();
+      playingRef.current.src = "";
+    }
+    setIsSpeaking(false);
+  }
 
   // removed old speechSynthesis-based speak()
 
@@ -209,7 +211,7 @@ const Interview: React.FC = () => {
           const fallback =
             [
               "Tell me about a recent project where you had significant impact.",
-              "Describe a difficult technical challenge and how you overcame it.", 
+              "Describe a difficult technical challenge and how you overcame it.",
               "How do you prioritize tasks when everything seems urgent?",
             ][currentIndex] || "Tell me something you're proud of.";
           setQuestions((qs) => {
@@ -273,7 +275,7 @@ const Interview: React.FC = () => {
       });
       const json = await res.json();
       const answerText = (json.text || "").trim();
-      commitAnswer(answerText);
+      await commitAnswer(answerText);
     } catch (e) {
       // ignore if fails
     } finally {
@@ -281,17 +283,18 @@ const Interview: React.FC = () => {
     }
   }
 
-  function commitAnswer(answer: string) {
+  async function commitAnswer(answer: string) {
     if (!answer) return;
+    const initialConfidence = +(6 + Math.random() * 4).toFixed(1);
     const baseEntry: TranscriptEntry = {
       q: question,
       a: answer,
-      confidence,
+      confidence: initialConfidence,
       strengths: ["Good structure (STAR)"],
       improvements: ["Add metrics/quantification"],
     };
     setTranscript((t) => [...t, baseEntry]);
-    const entryIndex = transcript.length; // index after append
+    const entryIndex = transcript.length;
 
     // Quick feedback fetch
     try {
@@ -307,13 +310,13 @@ const Interview: React.FC = () => {
           if (copy[entryIndex]) {
             copy[entryIndex] = {
               ...copy[entryIndex],
-              confidence: data.confidence ?? 0,
+              confidence: data.confidence ?? copy[entryIndex].confidence,
               strengths: data.strengths?.length
                 ? data.strengths
-                : ["Good structure"],
+                : copy[entryIndex].strengths,
               improvements: data.improvements?.length
                 ? data.improvements
-                : ["Add impact"],
+                : copy[entryIndex].improvements,
             };
           }
           return copy;
@@ -323,13 +326,13 @@ const Interview: React.FC = () => {
         setShowFeedback({
           entry: {
             ...baseEntry,
-            confidence: data.confidence ?? 0,
+            confidence: data.confidence ?? baseEntry.confidence,
             strengths: data.strengths?.length
               ? data.strengths
-              : ["Good structure"],
+              : baseEntry.strengths,
             improvements: data.improvements?.length
               ? data.improvements
-              : ["Add impact"],
+              : baseEntry.improvements,
           },
           id,
         });
@@ -340,11 +343,11 @@ const Interview: React.FC = () => {
         const improveLine = data.improvements?.[0]
           ? `Improve: ${data.improvements[0]}.`
           : "";
-  enqueueSpeak(
-          `Feedback. Confidence ${Math.round(
-            (data.confidence ?? 0) * 10
-          ) / 10} out of ten. ${strengthsLine} ${improveLine}`,
-  );
+        enqueueSpeak(
+          `Feedback. Confidence ${
+            Math.round((data.confidence ?? baseEntry.confidence) * 10) / 10
+          } out of ten. ${strengthsLine} ${improveLine}`
+        );
         setTimeout(() => {
           setShowFeedback((f) => (f && f.id === id ? null : f));
         }, 6000);
@@ -398,7 +401,13 @@ const Interview: React.FC = () => {
     if (nextIndex >= DEMO_MAX) {
       setTimeout(() => setShowRecap(true), 400);
       // final spoken CTA
-  setTimeout(() => enqueueSpeak("Demo complete. Please rate your experience and join the waitlist to get early access."), 800);
+      setTimeout(
+        () =>
+          enqueueSpeak(
+            "Demo complete. Please rate your experience and join the waitlist to get early access."
+          ),
+        800
+      );
     } else {
       setCurrentIndex(nextIndex);
     }
@@ -430,7 +439,8 @@ const Interview: React.FC = () => {
 
   function toggleRecord() {
     if (!hasStarted) return;
-    if (showRecap || currentIndex >= DEMO_MAX || !questions[currentIndex]) return;
+    if (showRecap || currentIndex >= DEMO_MAX || !questions[currentIndex])
+      return;
     if (isRecording) {
       stopRecording();
     } else {
@@ -447,8 +457,8 @@ const Interview: React.FC = () => {
     setLines([]);
     setQuestions([]);
     setMarkers([]);
-  setHasStarted(false);
-  cancelTTS();
+    setHasStarted(false);
+    cancelTTS();
     track("interview_reset", {});
   }
 
@@ -485,33 +495,31 @@ const Interview: React.FC = () => {
   function renderHighlighted(text: string) {
     if (!markers.length || !text) return <span>{text}</span>;
     const lower = text.toLowerCase();
-    // collect matches by searching phrase occurrences
     const rawMatches: {
       start: number;
       end: number;
       marker: TranscriptMarker;
     }[] = [];
-    markers.forEach((m) => {
-      const phrase = m.phrase.trim();
+    markers.forEach((mk) => {
+      const phrase = mk.phrase.trim();
       if (!phrase) return;
       const pLower = phrase.toLowerCase();
       let from = 0;
       while (from < lower.length) {
         const idx = lower.indexOf(pLower, from);
         if (idx === -1) break;
-        rawMatches.push({ start: idx, end: idx + pLower.length, marker: m });
-        from = idx + pLower.length; // non-overlapping per marker
+        rawMatches.push({ start: idx, end: idx + pLower.length, marker: mk });
+        from = idx + pLower.length;
       }
     });
     if (!rawMatches.length) return <span>{text}</span>;
     rawMatches.sort((a, b) => a.start - b.start || a.end - b.end);
-    // remove overlaps: keep earliest finishing
     const matches: typeof rawMatches = [];
     let lastEnd = -1;
-    for (const m of rawMatches) {
-      if (m.start < lastEnd) continue;
-      matches.push(m);
-      lastEnd = m.end;
+    for (const rm of rawMatches) {
+      if (rm.start < lastEnd) continue;
+      matches.push(rm);
+      lastEnd = rm.end;
     }
     const nodes: React.ReactNode[] = [];
     let cursor = 0;
@@ -525,7 +533,7 @@ const Interview: React.FC = () => {
         <span
           key={`m-${m.start}-${i}`}
           className={`relative inline-block px-0.5 rounded border underline decoration-dotted cursor-help transition-colors ${severityClasses(
-            m.severity
+            m.marker.severity
           )}`}
           title={`${m.marker.feedback}${
             m.marker.suggestion ? " → " + m.marker.suggestion : ""
@@ -534,7 +542,7 @@ const Interview: React.FC = () => {
           {frag}
         </span>
       );
-      cursor = end;
+      cursor = m.end;
     });
     if (cursor < text.length)
       nodes.push(<span key={`tail-${cursor}`}>{text.slice(cursor)}</span>);
@@ -669,7 +677,7 @@ const Interview: React.FC = () => {
                     Start
                   </button>
                 )}
-                
+
                 {hasStarted && questions[currentIndex] && (
                   <button
                     type="button"
@@ -681,7 +689,10 @@ const Interview: React.FC = () => {
                 )}
                 <button
                   disabled={
-                    !hasStarted || isTranscribing || showRecap || currentIndex >= DEMO_MAX
+                    !hasStarted ||
+                    isTranscribing ||
+                    showRecap ||
+                    currentIndex >= DEMO_MAX
                   }
                   onClick={toggleRecord}
                   className={`inline-flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-medium shadow-sm transition border disabled:opacity-50 ${
@@ -754,10 +765,10 @@ const Interview: React.FC = () => {
                         • (Hesitation at {formatTime(line.timestamp + p)})
                       </span>
                     ));
-                    
+
                     // Apply marker highlighting if this is user speech
                     const displayText =
-                      line.speaker === "User"
+                      line.speaker === "Alexandre"
                         ? renderHighlighted(line.text)
                         : highlightFillers(line.text);
 
@@ -819,7 +830,7 @@ const Interview: React.FC = () => {
                 Example: [00:24] Alexandre: "In my last project, I implemented
                 an API that..." • (Hesitation at 00:29)
               </p>
-              
+
               {/* Marker Summary */}
               {markers.length > 0 && (
                 <div className="mt-4 border-t border-gray-100 pt-4">
@@ -856,7 +867,9 @@ const Interview: React.FC = () => {
                 Positive summary to guide your next practice session.
               </p>
               <div className="mb-6 p-4 bg-indigo-50 rounded-xl border border-indigo-100 text-xs text-indigo-800">
-                Demo finished. Rate your experience below and join the waitlist for full access, unlimited questions, advanced coaching and personalized roadmaps.
+                Demo finished. Rate your experience below and join the waitlist
+                for full access, unlimited questions, advanced coaching and
+                personalized roadmaps.
               </div>
               <div className="flex flex-wrap items-center gap-4 mb-6">
                 {avgConfidence && (
@@ -956,8 +969,10 @@ const Interview: React.FC = () => {
 export default Interview;
 
 // Inline rating component for recap CTA
-const starsBase = [1,2,3,4,5];
-interface RatingCTAProps { onSpeak?: (text: string) => void }
+const starsBase = [1, 2, 3, 4, 5];
+interface RatingCTAProps {
+  onSpeak?: (text: string) => void;
+}
 const RatingCTA: React.FC<RatingCTAProps> = ({ onSpeak }) => {
   const [rating, setRating] = useState<number | null>(null);
   const [submitted, setSubmitted] = useState(false);
@@ -969,15 +984,23 @@ const RatingCTA: React.FC<RatingCTAProps> = ({ onSpeak }) => {
   return (
     <div className="mb-8">
       <div className="flex items-center gap-3 mb-2">
-        <span className="text-sm font-medium text-gray-700">Rate this demo:</span>
+        <span className="text-sm font-medium text-gray-700">
+          Rate this demo:
+        </span>
         <div className="flex">
-          {starsBase.map(s => (
+          {starsBase.map((s) => (
             <button
               key={s}
               onClick={() => setRating(s)}
-              className={`w-7 h-7 text-lg transition ${rating && s <= rating ? 'text-yellow-500' : 'text-gray-300 hover:text-gray-400'}`}
+              className={`w-7 h-7 text-lg transition ${
+                rating && s <= rating
+                  ? "text-yellow-500"
+                  : "text-gray-300 hover:text-gray-400"
+              }`}
               aria-label={`Rate ${s}`}
-            >★</button>
+            >
+              ★
+            </button>
           ))}
         </div>
         {rating && <span className="text-xs text-gray-500">{rating}/5</span>}
@@ -987,7 +1010,7 @@ const RatingCTA: React.FC<RatingCTAProps> = ({ onSpeak }) => {
           type="email"
           placeholder="Email for early access"
           value={email}
-          onChange={e=> setEmail(e.target.value)}
+          onChange={(e) => setEmail(e.target.value)}
           className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-gray-900"
         />
         <button
@@ -995,11 +1018,13 @@ const RatingCTA: React.FC<RatingCTAProps> = ({ onSpeak }) => {
           onClick={submit}
           className="px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-indigo-500"
         >
-          {submitted ? 'Saved' : 'Submit & Join Waitlist'}
+          {submitted ? "Saved" : "Submit & Join Waitlist"}
         </button>
       </div>
       {submitted && (
-        <p className="text-xs text-indigo-600 mt-2">We will notify you—thanks for the feedback!</p>
+        <p className="text-xs text-indigo-600 mt-2">
+          We will notify you—thanks for the feedback!
+        </p>
       )}
     </div>
   );

@@ -10,7 +10,6 @@ import {
   evaluateRelevance,
   evaluateCoherence,
 } from "../lib/openai.js";
-import { generateQuickFeedback } from "../lib/openai.js";
 import { env } from "../lib/env.js";
 
 const upload = multer({ limits: { fileSize: env.MAX_AUDIO_BYTES } });
@@ -46,52 +45,6 @@ router.post("/analyze-transcript", async (req, res, next) => {
     const schema = z.object({ transcript: z.string().min(1).max(8000) });
     const { transcript } = schema.parse(req.body);
     const result = await analyzeTranscriptChunk(transcript);
-    res.json(result);
-  } catch (e) {
-    next(e);
-  }
-});
-
-router.post("/quick-feedback", async (req, res, next) => {
-  try {
-    const schema = z.object({ answer: z.string().min(5).max(4000) });
-    const { answer } = schema.parse(req.body);
-    const result = await generateQuickFeedback(answer);
-    res.json(result);
-  } catch (e) {
-    next(e);
-  }
-});
-
-router.post("/relevance", async (req, res, next) => {
-  try {
-    const schema = z.object({
-      question: z.string().min(5).max(600),
-      answer: z.string().min(5).max(5000),
-    });
-    const { question, answer } = schema.parse(req.body);
-    const result = await evaluateRelevance(question, answer);
-    res.json(result);
-  } catch (e) {
-    next(e);
-  }
-});
-
-router.post("/coherence", async (req, res, next) => {
-  try {
-    const schema = z.object({
-      qa: z
-        .array(
-          z.object({
-            q: z.string().min(3).max(800),
-            a: z.string().min(1).max(6000),
-          })
-        )
-        .min(1)
-        .max(40),
-    });
-    const { qa } = schema.parse(req.body);
-    const result = await evaluateCoherence(qa);
     res.json(result);
   } catch (e) {
     next(e);

@@ -234,7 +234,7 @@ Return ONLY valid JSON like: {"markers":[{"phrase":"...","offset":10,"feedback":
         { role: "user", content: prompt },
       ],
       temperature: 0.2,
-      max_tokens: 400,
+      max_tokens: 500,
     });
     const raw = resp.choices[0].message?.content || "{}";
     const match = raw.match(/\{[\s\S]*\}/);
@@ -258,4 +258,51 @@ Return ONLY valid JSON like: {"markers":[{"phrase":"...","offset":10,"feedback":
     console.error("analyzeTranscriptChunk error", e);
   }
   return { markers: [] };
+}
+
+// Lightweight quick feedback (fast, low tokens) for immediate UI toast
+export async function generateQuickFeedback(answer) {
+  if (isMockMode) {
+    return {
+      confidence: 7.5,
+      strengths: ["Clear structure"],
+      improvements: ["Add measurable impact"],
+    };
+  }
+  const prompt = `You are an interviewing coach. Provide ultra-concise JSON ONLY with keys: confidence (0-10 number), strengths (array with 1 short bullet), improvements (array with 1 short bullet). Focus on clarity & impact.
+Answer: """${answer.replace(/`/g, "`")}"""`;
+  try {
+    const resp = await openai.chat.completions.create({
+      model: env.AI_MODEL_QA,
+      messages: [
+        { role: "system", content: "Return ONLY compact JSON, no commentary." },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.2,
+      max_tokens: 120,
+    });
+    const raw = resp.choices[0].message?.content || "{}";
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      const parsed = JSON.parse(match[0]);
+      if (
+        typeof parsed.confidence === "number" &&
+        Array.isArray(parsed.strengths) &&
+        Array.isArray(parsed.improvements)
+      ) {
+        return {
+          confidence: Math.max(0, Math.min(10, parsed.confidence)),
+          strengths: parsed.strengths.slice(0, 1).map(String),
+          improvements: parsed.improvements.slice(0, 1).map(String),
+        };
+      }
+    }
+  } catch (e) {
+    console.error("generateQuickFeedback error", e);
+  }
+  return {
+    confidence: 7.0,
+    strengths: ["Good baseline structure"],
+    improvements: ["Add quantitative results"],
+  };
 }

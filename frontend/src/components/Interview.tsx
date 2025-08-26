@@ -17,17 +17,19 @@ interface TranscriptEntry {
 
 interface TranscriptMarker {
   phrase: string;
-  offset: number;
+  offset?: number; // may be absent; no longer relied upon
   feedback: string;
   severity: "mild" | "moderate" | "severe";
-  suggestion: string;
+  suggestion?: string;
+  questionIndex?: number; // which answer this marker belongs to
 }
 
 interface TranscriptLine {
   id: string;
-  speaker: "Alexandre" | "AI";
+  speaker: "User" | "AI";
   text: string;
   timestamp: number;
+  questionIndex: number; // Track which question this line belongs to
   pauses?: number[];
   flagged?: boolean;
   note?: string;
@@ -52,82 +54,57 @@ const Interview: React.FC = () => {
   const [lockScroll, setLockScroll] = useState(false);
   const transcriptScrollRef = useRef<HTMLDivElement | null>(null);
   const startTimeRef = useRef<number>(Date.now());
-  
+
   // Marker analysis state
   const [markers, setMarkers] = useState<TranscriptMarker[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
   const analyzeAbortRef = useRef<AbortController | null>(null);
 
   const [questions, setQuestions] = useState<string[]>([]);
+  const [questionLoading, setQuestionLoading] = useState(false); // novo estado
   const question = questions[currentIndex] || "Generating question...";
 
-  // ---- Real-time transcript analysis ----
-  useEffect(() => {
+  // ---- Immediate per-answer analysis helper ----
+  async function runAnalysisForAnswer(answer: string, qIdx: number) {
     if (showRecap) return;
-    if (!lines.length) {
-      setMarkers([]);
-      return;
-    }
-    
-    // Get the full transcript text from all lines
-    const fullTranscript = lines
-      .filter(line => line.speaker === "Alexandre")
-      .map(line => line.text)
-      .join(" ");
-    
-    if (!fullTranscript.trim()) {
-      setMarkers([]);
-      return;
-    }
-
-    const handle = setTimeout(async () => {
-      try {
-        analyzeAbortRef.current?.abort();
-        const ctrl = new AbortController();
-        analyzeAbortRef.current = ctrl;
-        setAnalyzing(true);
-        
-        const analysisPrompt = `You are an advanced interview coach AI. Analyze the transcript in real-time and identify areas for improvement, focusing on:
-- Fillers and verbal crutches (e.g., 'uh', 'um', 'like', 'so').
-- Unnecessary repetitions.
-- Vague language (e.g., 'things', 'maybe', 'more or less').
-
-Rules:
-- Feedback must be constructive and positive.
-- For each occurrence, provide JSON output with:
-  - phrase: the detected word or expression.
-  - offset: start position in the transcript (0-indexed).
-  - feedback: a short, actionable improvement suggestion.
-  - severity: 'mild' (yellow), 'moderate' (orange), 'severe' (red).
-  - suggestion: an alternative word, phrase, or sentence rephrasing to improve clarity and confidence.
-
-The output must always be valid JSON only, with no extra commentary.
-
-Now analyze the following transcript in real-time:
-${fullTranscript}`;
-
-        const res = await fetch(`${API_BASE}/api/ai/analyze-transcript`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: analysisPrompt }),
-          signal: ctrl.signal,
+    const trimmed = answer.trim();
+    if (!trimmed) return;
+    try {
+      analyzeAbortRef.current?.abort();
+      const ctrl = new AbortController();
+      analyzeAbortRef.current = ctrl;
+      setAnalyzing(true);
+      const res = await fetch(`${API_BASE}/api/ai/analyze-transcript`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transcript: trimmed }),
+        signal: ctrl.signal,
+      });
+      if (!res.ok) throw new Error("bad status");
+      const json = await res.json();
+      if (json && Array.isArray(json.markers)) {
+        setMarkers((prev) => {
+          const filteredPrev = prev.filter((m) => m.questionIndex !== qIdx);
+          const enriched = json.markers.map((m: any) => ({
+            ...m,
+            questionIndex: qIdx,
+          }));
+          const combined = [...filteredPrev, ...enriched];
+          const seen = new Set<string>();
+          return combined.filter((m) => {
+            const key = `${m.questionIndex}|${m.phrase.toLowerCase()}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
         });
-        
-        if (!res.ok) throw new Error("bad status");
-        const json = await res.json();
-        if (json && Array.isArray(json.markers)) {
-          setMarkers(json.markers);
-        }
-      } catch (e) {
-        if ((e as any).name === "AbortError") return;
-        // ignore other errors
-      } finally {
-        setAnalyzing(false);
       }
-    }, 1000); // 1 second debounce
-    
-    return () => clearTimeout(handle);
-  }, [lines, showRecap]);
+    } catch (e) {
+      if ((e as any).name === "AbortError") return;
+    } finally {
+      setAnalyzing(false);
+    }
+  }
 
   // ---- Persistence (load) ----
   useEffect(() => {
@@ -139,6 +116,7 @@ ${fullTranscript}`;
         if (Array.isArray(parsed.questions)) setQuestions(parsed.questions);
         if (Array.isArray(parsed.transcript)) setTranscript(parsed.transcript);
         if (Array.isArray(parsed.lines)) setLines(parsed.lines);
+        if (Array.isArray(parsed.markers)) setMarkers(parsed.markers);
         if (typeof parsed.currentIndex === "number")
           setCurrentIndex(parsed.currentIndex);
         if (parsed.showRecap) setShowRecap(true);
@@ -148,6 +126,15 @@ ${fullTranscript}`;
     }
   }, []);
 
+  // ---- Force initial question load ----
+  useEffect(() => {
+    // Trigger question fetching on component mount if no question exists
+    if (!questions[0] && currentIndex === 0 && !showRecap) {
+      // This will trigger the AI Question Fetching effect
+      setQuestions([]); // Force re-trigger if empty
+    }
+  }, []); // Run only once on mount
+
   // ---- Persistence (save) ----
   useEffect(() => {
     const state = {
@@ -156,23 +143,30 @@ ${fullTranscript}`;
       lines,
       currentIndex,
       showRecap,
+      markers,
     };
     try {
       localStorage.setItem("interview_state_v1", JSON.stringify(state));
     } catch (_) {
       // ignore
     }
-  }, [questions, transcript, lines, currentIndex, showRecap]);
+  }, [questions, transcript, lines, currentIndex, showRecap, markers]);
 
   // ---- AI Question Fetching ----
   const fetchingRef = useRef(false);
   useEffect(() => {
     if (showRecap) return;
     if (currentIndex >= DEMO_MAX) return;
-    if (questions[currentIndex]) return; // already have
+    if (questions[currentIndex]) {
+      setQuestionLoading(false);
+      return; // already have
+    }
     if (fetchingRef.current) return;
+
     fetchingRef.current = true;
+    setQuestionLoading(true);
     let cancelled = false;
+
     (async () => {
       try {
         const categories = ["behavioral", "technical", "leadership"];
@@ -192,12 +186,13 @@ ${fullTranscript}`;
             return clone;
           });
         }
-      } catch (_) {
+      } catch (error) {
+        console.warn("Question fetch failed:", error);
         if (!cancelled) {
           const fallback =
             [
               "Tell me about a recent project where you had significant impact.",
-              "Describe a difficult technical challenge and how you overcame it.", 
+              "Describe a difficult technical challenge and how you overcame it.",
               "How do you prioritize tasks when everything seems urgent?",
             ][currentIndex] || "Tell me something you're proud of.";
           setQuestions((qs) => {
@@ -208,6 +203,7 @@ ${fullTranscript}`;
         }
       } finally {
         fetchingRef.current = false;
+        setQuestionLoading(false); // para loading
       }
     })();
     return () => {
@@ -268,30 +264,60 @@ ${fullTranscript}`;
     }
   }
 
-  function commitAnswer(answer: string) {
+  async function commitAnswer(answer: string) {
     if (!answer) return;
-    const confidence = +(6 + Math.random() * 4).toFixed(1);
-    const entry: TranscriptEntry = {
+    const thisQuestionIndex = currentIndex; // capture before increment
+    // Placeholder while fetching quick feedback
+    let entry: TranscriptEntry = {
       q: question,
       a: answer,
-      confidence,
-      strengths: ["Good structure (STAR)"],
-      improvements: ["Add metrics/quantification"],
+      confidence: 0,
+      strengths: ["…"],
+      improvements: ["…"],
     };
     setTranscript((t) => [...t, entry]);
-    const id = feedbackCounter + 1;
-    setFeedbackCounter(id);
-    setShowFeedback({ entry, id });
-    setTimeout(() => {
-      setShowFeedback((f) => (f && f.id === id ? null : f));
-    }, 6000);
-    const nextIndex = currentIndex + 1;
+    // Fetch quick feedback
+    try {
+      const res = await fetch(`${API_BASE}/api/ai/quick-feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ answer }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        entry = {
+          q: question,
+            a: answer,
+            confidence: json.confidence ?? 0,
+            strengths: json.strengths?.length ? json.strengths : ["Good structure"],
+            improvements: json.improvements?.length ? json.improvements : ["Add impact"],
+        };
+        // Update last transcript entry (just appended)
+        setTranscript((t) => {
+          const copy = [...t];
+          copy[copy.length - 1] = entry;
+          return copy;
+        });
+        const id = feedbackCounter + 1;
+        setFeedbackCounter(id);
+        setShowFeedback({ entry, id });
+        setTimeout(() => {
+          setShowFeedback((f) => (f && f.id === id ? null : f));
+        }, 6000);
+      }
+    } catch (_) {
+      // ignore quick feedback errors
+    }
+    // Run analysis immediately for this answer
+    runAnalysisForAnswer(answer, thisQuestionIndex);
+
+    const nextIndex = thisQuestionIndex + 1;
     if (nextIndex >= DEMO_MAX) {
       setTimeout(() => setShowRecap(true), 400);
     } else {
       setCurrentIndex(nextIndex);
     }
-    // generate structured lines
+  // generate structured lines
     const baseTimestamp = (Date.now() - startTimeRef.current) / 1000;
     const sentenceRegex = /[^.!?\n]+[.!?]?/g;
     const segments = answer.match(sentenceRegex) || [answer];
@@ -305,9 +331,10 @@ ${fullTranscript}`;
           : [];
         const line: TranscriptLine = {
           id: `${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 7)}`,
-          speaker: "Alexandre",
+          speaker: "User",
           text: clean,
           timestamp: baseTimestamp + incremental,
+          questionIndex: currentIndex, // Track which question this belongs to
           pauses,
         };
         incremental += Math.max(2, Math.min(8, Math.ceil(clean.length / 45)));
@@ -318,7 +345,8 @@ ${fullTranscript}`;
   }
 
   function toggleRecord() {
-    if (showRecap || currentIndex >= DEMO_MAX || !questions[currentIndex]) return;
+    if (showRecap || currentIndex >= DEMO_MAX || !questions[currentIndex])
+      return;
     if (isRecording) {
       stopRecording();
     } else {
@@ -368,34 +396,58 @@ ${fullTranscript}`;
     }
   }
 
-  function renderHighlighted(text: string) {
+  function renderHighlighted(text: string, questionIndex: number) {
     if (!markers.length) return <span>{text}</span>;
-    const ordered = [...markers].sort((a, b) => a.offset - b.offset);
+    const applicable = markers.filter(
+      (m) => m.questionIndex === questionIndex && !!m.phrase
+    );
+    if (!applicable.length) return <span>{text}</span>;
+    const matches: { start: number; end: number; marker: TranscriptMarker }[] =
+      [];
+    const lower = text.toLowerCase();
+    for (const m of applicable) {
+      const phraseLower = m.phrase.toLowerCase();
+      if (!phraseLower) continue;
+      let from = 0;
+      while (from < lower.length) {
+        const idx = lower.indexOf(phraseLower, from);
+        if (idx === -1) break;
+        matches.push({ start: idx, end: idx + phraseLower.length, marker: m });
+        from = idx + phraseLower.length; // non-overlapping occurrences
+      }
+    }
+    if (!matches.length) return <span>{text}</span>;
+    matches.sort((a, b) => a.start - b.start || a.end - b.end);
+    const simplified: typeof matches = [];
+    let lastEnd = -1;
+    for (const m of matches) {
+      if (m.start < lastEnd) continue; // skip overlap
+      simplified.push(m);
+      lastEnd = m.end;
+    }
     const nodes: React.ReactNode[] = [];
     let cursor = 0;
-    ordered.forEach((m, idx) => {
-      const start = m.offset;
-      const end = m.offset + m.phrase.length;
-      if (start > cursor) {
+    simplified.forEach((m) => {
+      if (m.start > cursor) {
         nodes.push(
-          <span key={`plain-${idx}-${cursor}`}>
-            {text.slice(cursor, start)}
-          </span>
+          <span key={`plain-${cursor}`}>{text.slice(cursor, m.start)}</span>
         );
       }
-      const phraseActual = text.slice(start, end);
+      const phraseActual = text.slice(m.start, m.end);
       nodes.push(
         <span
-          key={`marker-${idx}-${start}`}
+          key={`m-${m.start}`}
           className={`relative inline-block px-0.5 rounded border underline decoration-dotted cursor-help transition-colors ${severityClasses(
-            m.severity
+            m.marker.severity
           )}`}
-          title={`${m.feedback} → Suggestion: ${m.suggestion}`}
+          title={`${m.marker.feedback}${
+            m.marker.suggestion ? ` → ${m.marker.suggestion}` : ""
+          }`}
         >
           <span>{phraseActual}</span>
         </span>
       );
-      cursor = end;
+      cursor = m.end;
     });
     if (cursor < text.length)
       nodes.push(<span key={`tail-${cursor}`}>{text.slice(cursor)}</span>);
@@ -456,6 +508,9 @@ ${fullTranscript}`;
       setLines((ls) => ls.map((l) => (l.id === id ? { ...l, note } : l)));
   }
 
+  // Precompute base offsets for lines of the last answer to map global marker offsets -> per-line
+  // (Offsets no longer used; markers are matched by phrase per questionIndex)
+
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 flex flex-col">
       <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40">
@@ -503,7 +558,7 @@ ${fullTranscript}`;
                 <span className="text-gray-400">(Demo)</span>
               </p>
               <h2 className="text-2xl font-semibold leading-snug mb-4">
-                {question}
+                {questionLoading ? "Generating question..." : question}
               </h2>
               <p className="text-sm text-gray-500 mb-6">
                 Answer by speaking. Questions are AI-generated. Demo version
@@ -601,12 +656,13 @@ ${fullTranscript}`;
                         • (Hesitation at {formatTime(line.timestamp + p)})
                       </span>
                     ));
-                    
+
                     // Apply marker highlighting if this is user speech
-                    const displayText = line.speaker === "Alexandre" 
-                      ? renderHighlighted(line.text)
-                      : highlightFillers(line.text);
-                      
+                    const displayText =
+                      line.speaker === "User"
+                        ? renderHighlighted(line.text, line.questionIndex)
+                        : highlightFillers(line.text);
+
                     return (
                       <div
                         key={line.id}
@@ -661,33 +717,55 @@ ${fullTranscript}`;
                   </div>
                 )}
               </div>
-              <p className="mt-2 text-[10px] text-gray-400">
-                Example: [00:24] Alexandre: "In my last project, I implemented
-                an API that..." • (Hesitation at 00:29)
-              </p>
-              
+
               {/* Marker Summary */}
               {markers.length > 0 && (
                 <div className="mt-4 border-t border-gray-100 pt-4">
                   <h4 className="text-xs font-medium text-gray-700 mb-2">
                     Speech Analysis ({markers.length} suggestions)
                   </h4>
-                  <div className="flex flex-wrap gap-2">
-                    {markers.map((m, i) => (
-                      <span
-                        key={i}
-                        className={`text-[10px] px-2 py-1 rounded-full border ${severityClasses(
-                          m.severity
-                        )} whitespace-nowrap cursor-help`}
-                        title={`"${m.phrase}" → ${m.suggestion}`}
-                      >
-                        {m.severity === "mild"
-                          ? "Suggestion"
-                          : m.severity === "moderate"
-                          ? "Improve"
-                          : "Priority"}
-                      </span>
-                    ))}
+                  {/* Historical markers grouped by question */}
+                  <div className="mt-4 space-y-3">
+                    {Array.from(
+                      markers
+                        .reduce((map, m) => {
+                          const q = m.questionIndex ?? -1;
+                          if (!map.has(q)) map.set(q, [] as TranscriptMarker[]);
+                          map.get(q)!.push(m);
+                          return map;
+                        }, new Map<number, TranscriptMarker[]>())
+                        .entries()
+                    )
+                      .sort((a, b) => a[0] - b[0])
+                      .map(([qIdx, list]) => (
+                        <div
+                          key={qIdx}
+                          className="border border-gray-100 rounded-lg p-2 bg-gray-50/50"
+                        >
+                          <div className="text-[10px] font-semibold text-gray-600 mb-1 flex items-center justify-between">
+                            <span>
+                              Q{qIdx + 1} Markers ({list.length})
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {list.map((m, i) => (
+                              <span
+                                key={i}
+                                className={`text-[10px] px-2 py-0.5 rounded border ${severityClasses(
+                                  m.severity
+                                )} cursor-help`}
+                                title={`${m.phrase} → ${m.feedback}${
+                                  m.suggestion ? ` | ${m.suggestion}` : ""
+                                }`}
+                              >
+                                {m.phrase.length > 18
+                                  ? m.phrase.slice(0, 15) + "…"
+                                  : m.phrase}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
                   </div>
                 </div>
               )}

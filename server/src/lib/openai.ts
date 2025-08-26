@@ -12,7 +12,7 @@ export async function generateQuestion(category: string) {
     model: env.AI_MODEL_QA,
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.7,
-    max_tokens: 120
+    max_tokens: 400
   });
   return resp.choices[0].message?.content?.trim() || 'Describe a recent technical challenge you solved.';
 }
@@ -40,7 +40,7 @@ export async function analyzeAnswer(answer: string) {
     model: env.AI_MODEL_QA,
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.2,
-    max_tokens: 300
+    max_tokens: 400
   });
   const raw = resp.choices[0].message?.content || '';
   try {
@@ -129,7 +129,7 @@ export async function analyzeTranscriptChunk(transcript: string): Promise<{ mark
         { role: 'user', content: prompt }
       ],
       temperature: 0.15,
-      max_tokens: 380
+      max_tokens: 600
     });
     const raw = resp.choices[0].message?.content || '{}';
     const match = raw.match(/\{[\s\S]*\}/);

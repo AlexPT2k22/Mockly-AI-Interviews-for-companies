@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import { Mic, Square, RefreshCw, ArrowLeft, Bot, Loader2 } from "lucide-react";
+import RadarChart from "./RadarChart";
 import { track } from "../lib/analytics";
 import { Link } from "react-router-dom";
 
@@ -13,6 +14,8 @@ interface TranscriptEntry {
   confidence: number; // 0-10
   strengths: string[];
   improvements: string[];
+  relevanceScore?: number;
+  relevanceNote?: string;
 }
 
 interface TranscriptMarker {
@@ -63,6 +66,11 @@ const Interview: React.FC = () => {
   const [questions, setQuestions] = useState<string[]>([]);
   const [questionLoading, setQuestionLoading] = useState(false); // novo estado
   const question = questions[currentIndex] || "Generating question...";
+
+  // Global coherence (evaluated at recap)
+  const [coherenceScore, setCoherenceScore] = useState<number | null>(null);
+  const [coherenceIssues, setCoherenceIssues] = useState<string[] | null>(null);
+  const coherenceFetchedRef = useRef(false);
 
   // ---- Immediate per-answer analysis helper ----
   async function runAnalysisForAnswer(answer: string, qIdx: number) {
@@ -120,6 +128,11 @@ const Interview: React.FC = () => {
         if (typeof parsed.currentIndex === "number")
           setCurrentIndex(parsed.currentIndex);
         if (parsed.showRecap) setShowRecap(true);
+        if (parsed.coherence && typeof parsed.coherence === 'object') {
+          if (typeof parsed.coherence.score === 'number') setCoherenceScore(parsed.coherence.score);
+          if (Array.isArray(parsed.coherence.issues)) setCoherenceIssues(parsed.coherence.issues);
+          if (parsed.showRecap) coherenceFetchedRef.current = true;
+        }
       }
     } catch (_) {
       // ignore
@@ -144,13 +157,14 @@ const Interview: React.FC = () => {
       currentIndex,
       showRecap,
       markers,
+    coherence: { score: coherenceScore, issues: coherenceIssues },
     };
     try {
       localStorage.setItem("interview_state_v1", JSON.stringify(state));
     } catch (_) {
       // ignore
     }
-  }, [questions, transcript, lines, currentIndex, showRecap, markers]);
+  }, [questions, transcript, lines, currentIndex, showRecap, markers, coherenceScore, coherenceIssues]);
 
   // ---- AI Question Fetching ----
   const fetchingRef = useRef(false);
@@ -308,6 +322,34 @@ const Interview: React.FC = () => {
     } catch (_) {
       // ignore quick feedback errors
     }
+
+    // Fetch model relevance (non-blocking)
+    (async () => {
+      try {
+        const relRes = await fetch(`${API_BASE}/api/ai/relevance`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question, answer })
+        });
+        if (relRes.ok) {
+          const relJson = await relRes.json();
+          setTranscript(t => {
+            const copy = [...t];
+            const idx = copy.length - 1;
+            if (idx >= 0) {
+              copy[idx] = {
+                ...copy[idx],
+                relevanceScore: typeof relJson.relevanceScore === 'number' ? relJson.relevanceScore : (typeof relJson.score === 'number' ? relJson.score : undefined),
+                relevanceNote: relJson.rationale || relJson.explanation || relJson.note || undefined,
+              };
+            }
+            return copy;
+          });
+        }
+      } catch (_) {
+        // ignore
+      }
+    })();
     // Run analysis immediately for this answer
     runAnalysisForAnswer(answer, thisQuestionIndex);
 
@@ -363,14 +405,132 @@ const Interview: React.FC = () => {
     setLines([]);
     setQuestions([]);
     setMarkers([]);
+  setCoherenceScore(null);
+  setCoherenceIssues(null);
+  coherenceFetchedRef.current = false;
     track("interview_reset", {});
   }
 
-  const avgConfidence = transcript.length
-    ? (
-        transcript.reduce((acc, e) => acc + e.confidence, 0) / transcript.length
-      ).toFixed(1)
-    : null;
+  // --- Metrics for Radar ---
+  const radarMetrics = useMemo(() => {
+    if (!transcript.length) return null;
+
+    // Fluency: derive fillers per minute using lines (simple heuristic)
+    const fillerWords = ["uh", "um", "like", "so", "hmm", "ah", "you know"]; // same as FILLERS
+    const userLines = lines.filter((l) => l.speaker === "User");
+    const totalSeconds = userLines.length
+      ? Math.max(1, userLines[userLines.length - 1].timestamp - userLines[0].timestamp)
+      : 1;
+    const totalMinutes = totalSeconds / 60;
+    const fillerCount = userLines.reduce((acc, l) => {
+      const tokens = l.text.toLowerCase().split(/\s+/);
+      return acc + tokens.filter((t) => fillerWords.includes(t)).length;
+    }, 0);
+    const fillersPerMin = fillerCount / Math.max(0.5, totalMinutes);
+    let fluencyScore = 0;
+    if (fillersPerMin < 2) fluencyScore = 95;
+    else if (fillersPerMin <= 5) fluencyScore = 75;
+    else fluencyScore = 50;
+
+    // Clarity: % answers with >=2 sentences
+    const clarityCount = transcript.filter((t) => (t.a.match(/\.|!|\?/g) || []).length >= 2).length;
+    const clarityPct = (clarityCount / transcript.length) * 100;
+
+    // Confidence raw average 0-10 -> 0-100
+    const avgConfidenceRaw = transcript.reduce((acc, e) => acc + e.confidence, 0) / transcript.length;
+    const confidenceRawPct = (avgConfidenceRaw / 10) * 100;
+
+    // Relevance from model scores if present
+    const relScores = transcript.map(t => t.relevanceScore).filter((n): n is number => typeof n === 'number');
+    const relevanceRaw = relScores.length ? (relScores.reduce((a,b)=>a+b,0)/relScores.length) : confidenceRawPct;
+
+    // Coherence raw: model global or heuristic fallback
+    let coherenceRaw: number;
+    if (typeof coherenceScore === 'number') coherenceRaw = coherenceScore;
+    else {
+      const flagged = userLines.filter(l => l.flagged).length;
+      coherenceRaw = userLines.length ? ((userLines.length - flagged) / userLines.length) * 100 : 100;
+    }
+
+    // Engagement raw
+    const engagementRaw = (transcript.length / Math.min(DEMO_MAX, questions.length || DEMO_MAX)) * 100;
+
+    // Normalization to discrete 100/80/60 tiers
+    const normalize = (raw: number, custom?: {excellent: number; good: number}) => {
+      const ex = custom?.excellent ?? 90;
+      const gd = custom?.good ?? 70;
+      if (raw >= ex) return 100;
+      if (raw >= gd) return 80;
+      return 60;
+    };
+    const tier = (v: number): 'excellent' | 'good' | 'improve' => v === 100 ? 'excellent' : v === 80 ? 'good' : 'improve';
+
+    const metrics = [
+      {
+        label: 'Fluência',
+        raw: fluencyScore, // already mapped 95/75/50 heuristic -> interpret as proxy to thresholds
+        norm: normalize(fluencyScore),
+        desc: 'Fillers/min <2=100, 2-5=80, >5=60'
+      },
+      {
+        label: 'Clareza',
+        raw: clarityPct,
+        norm: normalize(clarityPct),
+        desc: 'Respostas estruturadas >=90%=100, 70-89%=80, <70%=60'
+      },
+      {
+        label: 'Relevância',
+        raw: relevanceRaw,
+        norm: normalize(relevanceRaw),
+        desc: 'Alinhamento pergunta >=90=100, 70-89=80, <70=60'
+      },
+      {
+        label: 'Coerência',
+        raw: coherenceRaw,
+        norm: normalize(coherenceRaw),
+        desc: 'Consistência narrativa >=90=100, 70-89=80, <70=60'
+      },
+      {
+        label: 'Confiança',
+        raw: confidenceRawPct,
+        norm: normalize(confidenceRawPct, { excellent: 85, good: 70 }),
+        desc: 'Confiança percebida >=85=100, 70-84=80, <70=60'
+      },
+      {
+        label: 'Engajamento',
+        raw: engagementRaw,
+        norm: normalize(engagementRaw),
+        desc: 'Perguntas concluídas >=90%=100, 70-89%=80, <70%=60'
+      },
+    ].map(m => ({ label: m.label, value: m.norm, tier: tier(m.norm), description: m.desc }));
+
+    return { metrics, avgConfidenceRaw: avgConfidenceRaw.toFixed(1) };
+  }, [transcript, lines, questions.length, coherenceScore]);
+
+  // Fetch coherence on recap (once)
+  useEffect(() => {
+    if (!showRecap) return;
+    if (coherenceFetchedRef.current) return;
+    coherenceFetchedRef.current = true;
+    (async () => {
+      try {
+        const qa = transcript.map(t => ({ q: t.q, a: t.a }));
+        const res = await fetch(`${API_BASE}/api/ai/coherence`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ qa })
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (typeof json.coherenceScore === 'number') setCoherenceScore(json.coherenceScore);
+          else if (typeof json.score === 'number') setCoherenceScore(json.score);
+          if (Array.isArray(json.issues)) setCoherenceIssues(json.issues);
+        }
+      } catch (_) {
+        // ignore
+      }
+    })();
+  }, [showRecap, transcript]);
 
   useEffect(() => {
     if (!showFeedback) return;
@@ -773,63 +933,59 @@ const Interview: React.FC = () => {
           )}
 
           {/* Recap */}
-          {showRecap && (
+          {showRecap && radarMetrics && (
             <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-              <h3 className="font-semibold mb-4">Interview Recap</h3>
-              <p className="text-sm text-gray-600 mb-4">
-                Positive summary to guide your next practice session.
-              </p>
-              <div className="flex flex-wrap items-center gap-4 mb-6">
-                {avgConfidence && (
-                  <div
-                    className={`text-sm px-3 py-2 rounded-xl border ${confidenceBadgeColor(
-                      parseFloat(avgConfidence)
-                    )}`}
-                  >
-                    Average confidence {avgConfidence} / 10
-                  </div>
-                )}
-                <div className="text-xs text-gray-500">
-                  {transcript.length} answers analyzed
+              <h3 className="font-semibold mb-4">Radar de Desempenho</h3>
+              <div className="grid md:grid-cols-2 gap-8">
+                <div className="flex items-center justify-center">
+                  <RadarChart metrics={radarMetrics.metrics as any} />
                 </div>
-              </div>
-              <div className="space-y-4 mb-6">
-                {transcript.map((t, i) => (
-                  <div key={i} className="flex items-center gap-3">
-                    <div className="w-10 text-xs text-gray-500">Q{i + 1}</div>
-                    <div className="flex-1 h-3 rounded-full bg-gray-100 overflow-hidden">
-                      <div
-                        className={`h-full transition-all ${
-                          t.confidence >= 8.5
-                            ? "bg-green-500"
-                            : t.confidence >= 7
-                            ? "bg-yellow-400"
-                            : "bg-red-500"
-                        }`}
-                        style={{ width: `${(t.confidence / 10) * 100}%` }}
-                      />
+                <div className="space-y-4">
+                  {radarMetrics.metrics.map((m) => (
+                    <div key={m.label} className="flex items-center gap-3">
+                      <div className="w-28 text-xs font-medium text-gray-600">
+                        {m.label}
+                      </div>
+                      <div className="flex-1 h-2.5 rounded-full bg-gray-100 overflow-hidden" title={m.description || ''}>
+                        <div
+                          className={`h-full transition-all ${
+                            m.tier === 'excellent'
+                              ? 'bg-green-500'
+                              : m.tier === 'good'
+                              ? 'bg-yellow-400'
+                              : 'bg-red-500'
+                          }`}
+                          style={{ width: `${m.value}%` }}
+                        />
+                      </div>
+                      <span className="w-14 text-xs text-gray-700 text-right">
+                        {m.value}
+                      </span>
                     </div>
-                    <div className="w-12 text-xs text-gray-600 text-right">
-                      {t.confidence.toFixed(1)}
-                    </div>
+                  ))}
+                  <div className="pt-2 text-[11px] text-gray-500">
+                    Confiança média: {radarMetrics.avgConfidenceRaw} / 10 • Perguntas respondidas: {transcript.length}
+                    {coherenceIssues && coherenceIssues.length > 0 && (
+                      <>
+                        <br />Coerência: {coherenceScore ?? '-'} • Pontos: {coherenceIssues.slice(0,3).join('; ')}{coherenceIssues.length>3?'…':''}
+                      </>
+                    )}
                   </div>
-                ))}
-              </div>
-              <div className="flex flex-wrap gap-3">
-                <button
-                  onClick={reset}
-                  className="px-4 py-2.5 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-800 transition"
-                >
-                  Practice again
-                </button>
-                <button
-                  onClick={() =>
-                    window.scrollTo({ top: 0, behavior: "smooth" })
-                  }
-                  className="px-4 py-2.5 rounded-lg text-sm font-medium bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 transition"
-                >
-                  See ideal example
-                </button>
+                  <div className="flex flex-wrap gap-3 pt-2">
+                    <button
+                      onClick={reset}
+                      className="px-4 py-2.5 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-800 transition"
+                    >
+                      Praticar novamente
+                    </button>
+                    <button
+                      onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                      className="px-4 py-2.5 rounded-lg text-sm font-medium bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 transition"
+                    >
+                      Ver exemplo ideal
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}

@@ -306,3 +306,78 @@ Answer: """${answer.replace(/`/g, "`")}"""`;
     improvements: ["Add quantitative results"],
   };
 }
+
+// Evaluate relevance between question and answer (0-100 + brief rationale)
+export async function evaluateRelevance(question, answer) {
+  if (isMockMode) {
+    return { relevance: 82, rationale: "Mock: answer mostly addresses the core of the question." };
+  }
+  const prompt = `Assess how well the answer addresses the interview question.
+Question: "${question.replace(/"/g, '\"')}"
+Answer: "${answer.replace(/"/g, '\"')}"
+Return ONLY JSON with keys: relevance (0-100 integer), rationale (short <=120 chars).`;
+  try {
+    const resp = await openai.chat.completions.create({
+      model: env.AI_MODEL_QA,
+      messages: [
+        { role: 'system', content: 'You output ONLY valid JSON.' },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.1,
+      max_tokens: 120,
+    });
+    const raw = resp.choices[0].message?.content || '{}';
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      const parsed = JSON.parse(match[0]);
+      if (typeof parsed.relevance === 'number') {
+        return {
+          relevance: Math.max(0, Math.min(100, Math.round(parsed.relevance))),
+          rationale: (parsed.rationale || '').toString().slice(0, 140)
+        };
+      }
+    }
+  } catch (e) {
+    console.error('evaluateRelevance error', e);
+  }
+  return { relevance: 70, rationale: 'Fallback relevance estimation.' };
+}
+
+// Evaluate coherence across multiple Q/A pairs.
+export async function evaluateCoherence(pairs) {
+  if (isMockMode) {
+    return { coherence: 78, issues: ['Mock: Slight repetition in project description.'] };
+  }
+  const serialized = pairs
+    .map((p, i) => `Q${i + 1}: ${p.q}\nA${i + 1}: ${p.a}`)
+    .join('\n\n');
+  const prompt = `Assess overall coherence (logical consistency, narrative continuity, absence of contradictions) across interview answers. Provide a score 0-100 and up to 3 brief issues.
+Data:\n${serialized}\nReturn ONLY JSON: {"coherence": <0-100>, "issues": ["..."]}`;
+  try {
+    const resp = await openai.chat.completions.create({
+      model: env.AI_MODEL_QA,
+      messages: [
+        { role: 'system', content: 'Return ONLY JSON, no extra text.' },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.2,
+      max_tokens: 180,
+    });
+    const raw = resp.choices[0].message?.content || '{}';
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      const parsed = JSON.parse(match[0]);
+      if (typeof parsed.coherence === 'number') {
+        return {
+          coherence: Math.max(0, Math.min(100, Math.round(parsed.coherence))),
+          issues: Array.isArray(parsed.issues)
+            ? parsed.issues.slice(0, 3).map((s) => s.toString().slice(0, 140))
+            : []
+        };
+      }
+    }
+  } catch (e) {
+    console.error('evaluateCoherence error', e);
+  }
+  return { coherence: 72, issues: [] };
+}

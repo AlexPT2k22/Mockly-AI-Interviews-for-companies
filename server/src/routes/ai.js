@@ -6,9 +6,7 @@ import {
   analyzeAnswer,
   transcribeAudio,
   synthesizeSpeech,
-  analyzeTranscriptChunk,
-  evaluateRelevance,
-  evaluateCoherence,
+  analyzeTranscriptChunk
 } from "../lib/openai.js";
 import { env } from "../lib/env.js";
 

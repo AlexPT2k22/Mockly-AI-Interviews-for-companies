@@ -49,6 +49,15 @@ const Interview: React.FC = () => {
   const [recordingError, setRecordingError] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
+  // --- Streaming (WebSocket) State ---
+  const wsRef = useRef<WebSocket | null>(null);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [streamingError, setStreamingError] = useState<string | null>(null);
+  const liveAnswerRef = useRef<string>("");
+  const interimRef = useRef<string>("");
+  const [liveInterim, setLiveInterim] = useState("");
+  const streamingMode = useRef<boolean>(true); // toggled off on first failure
+  const finalizingRef = useRef(false);
 
   // Additional core state (restored)
   const [lines, setLines] = useState<TranscriptLine[]>([]);
@@ -232,20 +241,44 @@ const Interview: React.FC = () => {
 
   async function startRecording() {
     setRecordingError(null);
+    setStreamingError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mr = new MediaRecorder(stream, { mimeType: "audio/webm" });
       chunksRef.current = [];
-      mr.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
+
+      // If streaming is enabled, we send chunks directly; else accumulate for batch upload.
+      mr.ondataavailable = async (e) => {
+        if (e.data.size === 0) return;
+        if (streamingMode.current && wsRef.current && wsConnected) {
+          try {
+            const buf = await e.data.arrayBuffer();
+            wsRef.current.send(buf);
+          } catch (_) {
+            // fallback to batch mode silently
+          }
+        } else {
+          chunksRef.current.push(e.data);
+        }
       };
       mr.onstop = async () => {
-        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-        await handleTranscription(blob);
-        stream.getTracks().forEach((t) => t.stop());
+        try {
+          // Allow a brief window for final transcripts if streaming
+          if (streamingMode.current && wsRef.current) {
+            await new Promise((r) => setTimeout(r, 600));
+            finalizeStreamingAnswer();
+          } else {
+            const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+            await handleTranscription(blob);
+          }
+        } finally {
+          stream.getTracks().forEach((t) => t.stop());
+        }
       };
       mediaRecorderRef.current = mr;
-      mr.start();
+      // Use small timeslice for near real-time chunking
+      mr.start(350);
+      if (streamingMode.current) ensureWebSocket();
       setIsRecording(true);
       track("interview_record_toggle", { recording: true, idx: currentIndex });
     } catch (e: any) {
@@ -262,6 +295,8 @@ const Interview: React.FC = () => {
     }
     setIsRecording(false);
     track("interview_record_toggle", { recording: false, idx: currentIndex });
+  // Mark we are finalizing to avoid duplicate finalize events
+  finalizingRef.current = true;
   }
 
   async function handleTranscription(blob: Blob) {
@@ -435,6 +470,103 @@ const Interview: React.FC = () => {
       })
       .filter(Boolean);
     setLines((l) => [...l, ...newLines]);
+  }
+
+  // --- Streaming Logic ---
+  function ensureWebSocket() {
+    if (wsRef.current && (wsRef.current.readyState === 0 || wsRef.current.readyState === 1)) return;
+    try {
+      const base = API_BASE.replace(/\/$/, "");
+      const wsUrl = base.replace(/^http/, "ws") + "/ws/transcribe";
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+      setWsConnected(false);
+      ws.onopen = () => {
+        setWsConnected(true);
+        liveAnswerRef.current = "";
+        interimRef.current = "";
+        setLiveInterim("");
+      };
+      ws.onerror = () => {
+        if (!wsConnected) {
+          streamingMode.current = false; // fallback
+          setStreamingError("Streaming unavailable — using batch mode.");
+        }
+      };
+      ws.onclose = () => {
+        setWsConnected(false);
+      };
+      ws.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(ev.data);
+          if (!msg || typeof msg !== "object") return;
+          switch (msg.type) {
+            case "connected":
+              break;
+            case "transcript": {
+              const text = msg.text || msg.transcript || msg.data?.text || "";
+              const isFinal = msg.is_final || msg.final || msg.data?.is_final;
+              if (!text) break;
+              if (isFinal) {
+                // Commit the final segment
+                liveAnswerRef.current = (liveAnswerRef.current + " " + text).trim();
+                interimRef.current = "";
+                setLiveInterim("");
+              } else {
+                interimRef.current = text;
+                setLiveInterim(text);
+              }
+              break;
+            }
+            case "marker": {
+              const mk = msg.marker || msg.data || msg;
+              if (!mk || !mk.phrase) break;
+              setMarkers((prev) => {
+                const dedup = new Map<string, TranscriptMarker>();
+                [...prev, mk].forEach((m: any) => {
+                  const phrase = (m.phrase || m.word || "").trim();
+                  if (!phrase) return;
+                  const key = phrase.toLowerCase() + "|" + (m.severity || "mild");
+                  if (!dedup.has(key)) {
+                    dedup.set(key, {
+                      phrase,
+                      feedback: m.feedback || m.note || "",
+                      severity: (m.severity as any) || "mild",
+                      suggestion: m.suggestion || m.rewrite || "",
+                    });
+                  }
+                });
+                return Array.from(dedup.values());
+              });
+              break;
+            }
+            case "error": {
+              setStreamingError(msg.error || "Streaming error");
+              break;
+            }
+            default:
+              break;
+          }
+        } catch (_) {
+          // ignore parse errors
+        }
+      };
+    } catch (e) {
+      streamingMode.current = false;
+      setStreamingError("Streaming init failed — fallback to batch.");
+    }
+  }
+
+  function finalizeStreamingAnswer() {
+    if (!streamingMode.current) return;
+    if (finalizingRef.current) finalizingRef.current = false;
+    // Close ws (we create a new one per answer for simplicity)
+    try { wsRef.current?.close(); } catch {}
+    const answer = (liveAnswerRef.current + (interimRef.current ? " " + interimRef.current : "")).trim();
+    liveAnswerRef.current = "";
+    interimRef.current = "";
+    setLiveInterim("");
+    if (answer) commitAnswer(answer);
   }
 
   function toggleRecord() {
@@ -726,8 +858,23 @@ const Interview: React.FC = () => {
                   </span>
                 )}
               </div>
+              {isRecording && streamingMode.current && (
+                <div className="mt-4 p-3 rounded-lg border border-indigo-100 bg-indigo-50 text-[11px] font-mono text-indigo-700 min-h-[42px]">
+                  <span className="block text-[10px] uppercase tracking-wide text-indigo-400 mb-1">Live Transcript</span>
+                  {liveInterim || liveAnswerRef.current ? (
+                    <span>
+                      {(liveAnswerRef.current + (liveInterim ? " " + liveInterim : "")).trim() || <em>Listening...</em>}
+                    </span>
+                  ) : (
+                    <em>Listening...</em>
+                  )}
+                </div>
+              )}
               {recordingError && (
                 <p className="mt-3 text-xs text-red-600">{recordingError}</p>
+              )}
+              {streamingError && (
+                <p className="mt-3 text-xs text-orange-600">{streamingError}</p>
               )}
               {isTranscribing && (
                 <p className="mt-3 text-xs text-gray-500 animate-pulse">

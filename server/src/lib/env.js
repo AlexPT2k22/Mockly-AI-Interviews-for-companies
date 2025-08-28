@@ -17,6 +17,7 @@ export const env = {
   FROM_EMAIL: req("FROM_EMAIL", "noreply@mockly.com"),
   SUPABASE_URL: req("SUPABASE_URL"),
   SUPABASE_ANON_KEY: req("SUPABASE_ANON_KEY"),
+  DEEPGRAM_API_KEY: req("DEEPGRAM_API_KEY"),
 };
 
 export const isMockMode = !env.OPENAI_API_KEY;

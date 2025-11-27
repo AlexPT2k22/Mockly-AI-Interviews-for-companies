@@ -208,14 +208,6 @@ export async function analyzeTranscriptChunk(transcript) {
   if (isMockMode) {
     // Simple mock: mark first occurrence of 'challenge' or length-based marker
     const markers = [];
-    return { text: "Transcription failed. Please try again." };
-  }
-}
-
-export async function analyzeTranscriptChunk(transcript) {
-  if (isMockMode) {
-    // Simple mock: mark first occurrence of 'challenge' or length-based marker
-    const markers = [];
     const idx = transcript.toLowerCase().indexOf("challenge");
     if (idx >= 0) {
       markers.push({

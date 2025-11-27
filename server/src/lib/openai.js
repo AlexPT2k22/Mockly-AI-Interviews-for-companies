@@ -212,22 +212,6 @@ export async function analyzeTranscriptChunk(transcript) {
   }
 }
 
-export async function synthesizeSpeech(text) {
-  if (isMockMode) {
-    const silentWav = Buffer.from(
-      "UklGRiQAAABXQVZFZm10IBAAAAABAAEAIlYAABAAAAACAAAASGFuZ2ZpcmU=",
-      "base64"
-    );
-    return { audioBase64: silentWav.toString("base64"), mime: "audio/wav" };
-  }
-  // TODO: Implement real TTS
-  return {
-    audioBase64: "",
-    mime: "audio/mpeg",
-    note: "TTS not fully implemented yet.",
-  };
-}
-
 export async function analyzeTranscriptChunk(transcript) {
   if (isMockMode) {
     // Simple mock: mark first occurrence of 'challenge' or length-based marker

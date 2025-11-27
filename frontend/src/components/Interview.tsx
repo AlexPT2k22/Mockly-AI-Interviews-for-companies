@@ -50,18 +50,6 @@ const Interview: React.FC = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   // --- Streaming (WebSocket) State ---
-  const wsRef = useRef<WebSocket | null>(null);
-  const [wsConnected, setWsConnected] = useState(false);
-  const [streamingError, setStreamingError] = useState<string | null>(null);
-  const liveAnswerRef = useRef<string>("");
-  const interimRef = useRef<string>("");
-  const [liveInterim, setLiveInterim] = useState("");
-  const streamingMode = useRef<boolean>(true); // toggled off on first failure
-  const finalizingRef = useRef(false);
-
-  // Additional core state (restored)
-  const [lines, setLines] = useState<TranscriptLine[]>([]);
-  const [search] = useState("");
   const [lockScroll] = useState(false);
   const transcriptScrollRef = useRef<HTMLDivElement | null>(null);
   const startTimeRef = useRef<number>(Date.now());

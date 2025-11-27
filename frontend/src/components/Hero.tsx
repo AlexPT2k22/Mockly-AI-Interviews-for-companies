@@ -46,7 +46,7 @@ const Hero: React.FC<HeroProps> = ({ onJoinWaitlist, onTryDemo }) => {
     const fetchAndCache = async () => {
       try {
         const res = await fetch(
-          "https://mocklyalpha.onrender.com/api/beta/summary"
+          "https://landingpagewaitlistinterview.onrender.com/api/beta/summary"
         );
         const json = await res.json();
         if (aborted) return;

@@ -103,7 +103,7 @@ const WaitlistModal: React.FC<WaitlistModalProps> = ({ onClose }) => {
 
       // Submit to backend which handles email sending
       const response = await fetch(
-        "https://mocklyalpha.onrender.com/api/waitlist",
+        "https://landingpagewaitlistinterview.onrender.com/api/waitlist",
         {
           method: "POST",
           headers: {

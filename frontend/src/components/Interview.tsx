@@ -5,7 +5,7 @@ import { Link } from "react-router-dom";
 
 const DEMO_MAX = 3; // demo version limit
 const API_BASE =
-  (import.meta as any).env?.VITE_API_BASE || "https://mocklyalpha.onrender.com";
+  (import.meta as any).env?.VITE_API_BASE || "https://landingpagewaitlistinterview.onrender.com";
 
 interface TranscriptEntry {
   q: string;

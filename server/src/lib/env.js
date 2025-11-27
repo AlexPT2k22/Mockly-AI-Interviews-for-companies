@@ -11,7 +11,7 @@ export const env = {
   OPENAI_API_KEY: req("OPENAI_API_KEY"),
   AI_MODEL_QA: req("AI_MODEL_QA", "gpt-4o-mini"),
   AI_MODEL_TTS: req("AI_MODEL_TTS", "gpt-4o-mini-tts"),
-  ALLOWED_ORIGIN: req("ALLOWED_ORIGIN", "https://mockly-alpha.vercel.app"),
+  ALLOWED_ORIGIN: req("ALLOWED_ORIGIN", "http://localhost:5173,https://mockly-alpha.vercel.app"),
   MAX_AUDIO_BYTES: parseInt(req("MAX_AUDIO_BYTES", "5000000"), 10),
   RESEND_API_KEY: req("RESEND_API_KEY"),
   FROM_EMAIL: req("FROM_EMAIL", "noreply@mockly.com"),

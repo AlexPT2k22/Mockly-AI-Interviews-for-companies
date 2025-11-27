@@ -15,9 +15,9 @@ export function useWaitlistCount() {
   useEffect(() => {
     const fetchCount = async () => {
       try {
-        const response = await fetch('https://mocklyalpha.onrender.com/api/waitlist/count');
+        const response = await fetch('https://landingpagewaitlistinterview.onrender.com/api/waitlist/count');
         const result = await response.json();
-        
+
         if (result.success && typeof result.count === 'number') {
           setCount(result.count);
           setDisplay(formatCount(result.count));

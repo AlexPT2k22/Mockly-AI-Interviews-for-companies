@@ -172,6 +172,48 @@ export async function transcribeAudio(buffer, mimetype) {
 
 export async function synthesizeSpeech(text) {
   if (isMockMode) {
+    // In mock mode, return silent WAV
+    const silentWav = Buffer.from(
+      "UklGRiQAAABXQVZFZm10IBAAAAABAAEAIlYAABAAAAACAAAASGFuZ2ZpcmU=",
+      "base64"
+    );
+    return { audioBase64: silentWav.toString("base64"), mime: "audio/wav" };
+  }
+  try {
+    // Use OpenAI TTS API
+    const mp3 = await openai.audio.speech.create({
+      model: "tts-1",      // Fast real-time model
+      voice: "alloy",       // Natural voice
+      input: text,
+    });
+    // Convert to buffer
+    const buffer = Buffer.from(await mp3.arrayBuffer());
+    
+    return {
+      audioBase64: buffer.toString("base64"),
+      mime: "audio/mpeg",
+    };
+  } catch (error) {
+    console.error("OpenAI TTS error:", error);
+    // Fallback to silent audio
+    const silentWav = Buffer.from(
+      "UklGRiQAAABXQVZFZm10IBAAAAABAAEAIlYAABAAAAACAAAASGFuZ2ZpcmU=",
+      "base64"
+    );
+    return { audioBase64: silentWav.toString("base64"), mime: "audio/wav" };
+  }
+}
+
+export async function analyzeTranscriptChunk(transcript) {
+  if (isMockMode) {
+    // Simple mock: mark first occurrence of 'challenge' or length-based marker
+    const markers = [];
+    return { text: "Transcription failed. Please try again." };
+  }
+}
+
+export async function synthesizeSpeech(text) {
+  if (isMockMode) {
     const silentWav = Buffer.from(
       "UklGRiQAAABXQVZFZm10IBAAAAABAAEAIlYAABAAAAACAAAASGFuZ2ZpcmU=",
       "base64"

@@ -68,7 +68,14 @@ router.post("/tts", async (req, res, next) => {
     const schema = z.object({ text: z.string().min(1).max(500) });
     const { text } = schema.parse(req.body);
     const result = await synthesizeSpeech(text);
-    res.json(result);
+    if (result.audioBase64) {
+      const buf = Buffer.from(result.audioBase64, "base64");
+      res.setHeader("Content-Type", result.mime);
+      res.setHeader("Content-Length", buf.length);
+      res.send(buf);
+    } else {
+      res.status(500).json({ error: "TTS failed" });
+    }
   } catch (e) {
     next(e);
   }

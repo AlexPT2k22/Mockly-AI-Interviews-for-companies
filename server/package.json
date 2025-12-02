@@ -8,8 +8,9 @@
     "start": "node src/index.js"
   },
   "dependencies": {
-  "@deepgram/sdk": "^4.11.2",
-  "@supabase/supabase-js": "^2.56.0",
+    "@deepgram/sdk": "^4.11.2",
+    "@elevenlabs/elevenlabs-js": "^2.26.0",
+    "@supabase/supabase-js": "^2.56.0",
     "assemblyai": "^4.15.0",
     "axios": "^1.7.0",
     "cors": "^2.8.5",

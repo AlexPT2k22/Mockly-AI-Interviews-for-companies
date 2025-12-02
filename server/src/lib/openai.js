@@ -5,6 +5,12 @@ export const openai = !isMockMode
   ? new OpenAI({ apiKey: env.OPENAI_API_KEY })
   : null;
 
+import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
+
+export const elevenlabs = !isMockMode && env.ELEVENLABS_API_KEY
+  ? new ElevenLabsClient({ apiKey: env.ELEVENLABS_API_KEY })
+  : null;
+
 export async function generateQuestion(category, language = "en") {
   if (isMockMode) {
     if (language === "pt") {
@@ -183,43 +189,34 @@ export async function synthesizeSpeech(text, provider = "openai") {
   // ElevenLabs Implementation
   if (provider === "elevenlabs") {
     console.log("[TTS] Attempting ElevenLabs. Key present:", !!env.ELEVENLABS_API_KEY, "Voice:", env.ELEVENLABS_VOICE_ID);
-    if (env.ELEVENLABS_API_KEY) {
+    if (elevenlabs) {
       try {
-      const voiceId = env.ELEVENLABS_VOICE_ID;
-      const response = await fetch(
-        `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "xi-api-key": env.ELEVENLABS_API_KEY,
+        const voiceId = env.ELEVENLABS_VOICE_ID;
+        const audioStream = await elevenlabs.textToSpeech.convert(voiceId, {
+          model_id: "eleven_multilingual_v2",
+          text,
+          output_format: "mp3_44100_128",
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75,
           },
-          body: JSON.stringify({
-            text,
-            model_id: "eleven_monolingual_v1",
-            voice_settings: {
-              stability: 0.5,
-              similarity_boost: 0.75,
-            },
-          }),
+        });
+
+        const chunks = [];
+        for await (const chunk of audioStream) {
+          chunks.push(chunk);
         }
-      );
+        const buffer = Buffer.concat(chunks);
 
-      if (!response.ok) {
-        throw new Error(`ElevenLabs API error: ${response.statusText}`);
+        return {
+          audioBase64: buffer.toString("base64"),
+          mime: "audio/mpeg",
+        };
+      } catch (error) {
+        console.error("ElevenLabs TTS error:", error);
+        // Fallback to OpenAI if ElevenLabs fails
       }
-
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      return {
-        audioBase64: buffer.toString("base64"),
-        mime: "audio/mpeg",
-      };
-    } catch (error) {
-      console.error("ElevenLabs TTS error:", error);
-      // Fallback to OpenAI if ElevenLabs fails
     }
-  }
   }
 
   // OpenAI Implementation (Default / Fallback)

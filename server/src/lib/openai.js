@@ -181,8 +181,10 @@ export async function synthesizeSpeech(text, provider = "openai") {
   }
 
   // ElevenLabs Implementation
-  if (provider === "elevenlabs" && env.ELEVENLABS_API_KEY) {
-    try {
+  if (provider === "elevenlabs") {
+    console.log("[TTS] Attempting ElevenLabs. Key present:", !!env.ELEVENLABS_API_KEY, "Voice:", env.ELEVENLABS_VOICE_ID);
+    if (env.ELEVENLABS_API_KEY) {
+      try {
       const voiceId = env.ELEVENLABS_VOICE_ID;
       const response = await fetch(
         `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
@@ -217,6 +219,7 @@ export async function synthesizeSpeech(text, provider = "openai") {
       console.error("ElevenLabs TTS error:", error);
       // Fallback to OpenAI if ElevenLabs fails
     }
+  }
   }
 
   // OpenAI Implementation (Default / Fallback)

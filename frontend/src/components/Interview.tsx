@@ -73,6 +73,7 @@ const Interview: React.FC = () => {
   const question = questions[currentIndex] || "Generating question...";
   // --- OpenAI TTS State ---
   const [ttsEnabled] = useState(true);
+  const [voiceProvider, setVoiceProvider] = useState<"openai" | "elevenlabs">("openai");
   const [isSpeaking, setIsSpeaking] = useState(false);
   const audioQueueRef = useRef<string[]>([]); // array de textos pendentes
   const playingRef = useRef<HTMLAudioElement | null>(null);
@@ -85,7 +86,7 @@ const Interview: React.FC = () => {
       const res = await fetch(`${API_BASE}/api/ai/tts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, provider: voiceProvider }),
         signal: ctrl.signal,
       });
       if (!res.ok) return null;
@@ -748,6 +749,28 @@ const Interview: React.FC = () => {
           <div className="h-5 w-px bg-gray-200" />
           <h1 className="font-semibold text-lg">Interview Practice</h1>
           <div className="ml-auto flex items-center gap-3">
+            <div className="flex items-center bg-gray-100 rounded-lg p-1 border border-gray-200">
+              <button
+                onClick={() => setVoiceProvider("openai")}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                  voiceProvider === "openai"
+                    ? "bg-white text-gray-900 shadow-sm"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                OpenAI
+              </button>
+              <button
+                onClick={() => setVoiceProvider("elevenlabs")}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                  voiceProvider === "elevenlabs"
+                    ? "bg-white text-gray-900 shadow-sm"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                ElevenLabs
+              </button>
+            </div>
             <button
               onClick={reset}
               className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition"

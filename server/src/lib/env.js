@@ -18,6 +18,8 @@ export const env = {
   SUPABASE_URL: req("SUPABASE_URL"),
   SUPABASE_ANON_KEY: req("SUPABASE_ANON_KEY"),
   DEEPGRAM_API_KEY: req("DEEPGRAM_API_KEY"),
+  ELEVENLABS_API_KEY: req("ELEVENLABS_API_KEY"),
+  ELEVENLABS_VOICE_ID: req("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM"), // Default voice: Rachel
 };
 
 export const isMockMode = !env.OPENAI_API_KEY;

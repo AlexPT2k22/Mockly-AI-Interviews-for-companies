@@ -65,9 +65,12 @@ router.post("/transcribe", upload.single("audio"), async (req, res, next) => {
 
 router.post("/tts", async (req, res, next) => {
   try {
-    const schema = z.object({ text: z.string().min(1).max(500) });
-    const { text } = schema.parse(req.body);
-    const result = await synthesizeSpeech(text);
+    const schema = z.object({
+      text: z.string().min(1).max(500),
+      provider: z.enum(["openai", "elevenlabs"]).optional(),
+    });
+    const { text, provider } = schema.parse(req.body);
+    const result = await synthesizeSpeech(text, provider);
     if (result.audioBase64) {
       const buf = Buffer.from(result.audioBase64, "base64");
       res.setHeader("Content-Type", result.mime);

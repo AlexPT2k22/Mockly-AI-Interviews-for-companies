@@ -170,7 +170,7 @@ export async function transcribeAudio(buffer, mimetype) {
   }
 }
 
-export async function synthesizeSpeech(text) {
+export async function synthesizeSpeech(text, provider = "openai") {
   if (isMockMode) {
     // In mock mode, return silent WAV
     const silentWav = Buffer.from(
@@ -179,11 +179,52 @@ export async function synthesizeSpeech(text) {
     );
     return { audioBase64: silentWav.toString("base64"), mime: "audio/wav" };
   }
+
+  // ElevenLabs Implementation
+  if (provider === "elevenlabs" && env.ELEVENLABS_API_KEY) {
+    try {
+      const voiceId = env.ELEVENLABS_VOICE_ID;
+      const response = await fetch(
+        `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "xi-api-key": env.ELEVENLABS_API_KEY,
+          },
+          body: JSON.stringify({
+            text,
+            model_id: "eleven_monolingual_v1",
+            voice_settings: {
+              stability: 0.5,
+              similarity_boost: 0.75,
+            },
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`ElevenLabs API error: ${response.statusText}`);
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      return {
+        audioBase64: buffer.toString("base64"),
+        mime: "audio/mpeg",
+      };
+    } catch (error) {
+      console.error("ElevenLabs TTS error:", error);
+      // Fallback to OpenAI if ElevenLabs fails
+    }
+  }
+
+  // OpenAI Implementation (Default / Fallback)
   try {
-    // Use OpenAI TTS API
+    // Use OpenAI TTS API with HD model for better quality
     const mp3 = await openai.audio.speech.create({
-      model: "tts-1",      // Fast real-time model
-      voice: "alloy",       // Natural voice
+      model: "tts-1-hd",   // HD model for better quality
+      voice: "onyx",       // 'onyx' has more gravitas/emphasis than 'alloy'
       input: text,
     });
     // Convert to buffer

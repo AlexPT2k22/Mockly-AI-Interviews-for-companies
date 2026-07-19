@@ -1,4 +1,4 @@
-# Mockly -- AI-Powered Interview Practice Platform
+# Mockly AI-Powered Interview Practice Platform
 
 A full-stack SaaS application that generates adaptive interview questions, transcribes voice answers in real time, and delivers AI-powered feedback with structured multi-dimensional scoring.
 

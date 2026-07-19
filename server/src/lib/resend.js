@@ -1,7 +1,13 @@
 import { Resend } from "resend";
 import { env } from "./env.js";
 
-const resend = new Resend(env.RESEND_API_KEY);
+let _resend = null;
+function getResend() {
+  if (!_resend && env.RESEND_API_KEY) {
+    _resend = new Resend(env.RESEND_API_KEY);
+  }
+  return _resend;
+}
 
 /**
  * Sends a welcome email to new waitlist subscribers
@@ -135,7 +141,7 @@ The Mockly Team
       `,
     };
 
-    const result = await resend.emails.send(emailTemplate);
+    const result = await getResend()?.emails.send(emailTemplate);
     console.log("Waitlist welcome email sent successfully:", result);
     return result;
   } catch (error) {

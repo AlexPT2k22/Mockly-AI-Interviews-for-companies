@@ -1,4 +1,5 @@
 import React from "react";
+import { Link } from "react-router-dom";
 import { track } from "../lib/analytics";
 import { User, Menu, X } from "lucide-react";
 
@@ -38,6 +39,12 @@ const Header: React.FC<HeaderProps> = ({ onWaitlistClick, onDemoClick }) => {
             >
               About
             </a>
+            <Link
+              to="/showcase"
+              className="text-gray-600 hover:text-gray-900 transition-colors duration-200 font-medium"
+            >
+              Showcase
+            </Link>
             <div className="h-6 w-px bg-gray-200"></div>
 
             <button
@@ -100,12 +107,12 @@ const Header: React.FC<HeaderProps> = ({ onWaitlistClick, onDemoClick }) => {
               >
                 About
               </a>
-              <a
-                href="#"
+              <Link
+                to="/showcase"
                 className="text-gray-600 hover:text-gray-900 transition-colors duration-200 font-medium px-2 py-1"
               >
-                Contact
-              </a>
+                Showcase
+              </Link>
               <div className="border-t border-gray-100 pt-4 mt-4">
                 <button
                   onClick={() => {

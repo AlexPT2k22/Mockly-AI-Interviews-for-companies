@@ -12,6 +12,7 @@ import Terms from "./components/legal/Terms";
 import Privacy from "./components/legal/Privacy";
 import Cookies from "./components/legal/Cookies";
 import Interview from "./components/Interview";
+import Showcase from "./components/Showcase";
 import "./animations.css";
 
 function App() {
@@ -50,6 +51,7 @@ function App() {
       <Route path="/privacy" element={<Privacy />} />
       <Route path="/cookies" element={<Cookies />} />
       <Route path="/interview" element={<Interview />} />
+      <Route path="/showcase" element={<Showcase />} />
       {/* Fallback */}
       <Route path="*" element={<div className="p-6">Not Found</div>} />
     </Routes>
